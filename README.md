@@ -30,7 +30,8 @@ Authentication & Cookie Session is a learning project for building a photo websi
 | Area | Technologies |
 | --- | --- |
 | Frontend | Next.js, TypeScript |
-| Backend | Java, Spring Boot, Spring Security, Spring Data JPA, Bean Validation |
+| Backend | Java, Spring Boot, Spring Web MVC, Spring Security, Spring Data JPA, Bean Validation |
+| File uploads | Spring Web multipart/form-data support; server-side image size and actual content/type validation |
 | Testing | JUnit 5, Mockito, Testcontainers |
 | Database | PostgreSQL |
 | Session store | Redis (planned; exact session configuration to be defined) |
@@ -70,6 +71,10 @@ Planned access rules:
 Because browsers automatically attach cookies to requests, cookie-based authentication requires careful **CSRF (Cross-Site Request Forgery) protection** for state-changing operations. The implementation should configure and document its CSRF strategy rather than disabling protection without justification. Also define appropriate cookie attributes (such as `HttpOnly`, `Secure` in HTTPS deployments, and `SameSite`), validate inputs, and avoid committing secrets.
 
 These are learning goals, not a claim that the project is production-ready.
+
+### Image upload validation
+
+Image uploads use Spring Web multipart support. The server must validate each image's size and actual content/type before accepting or storing it. Validation must inspect the file content rather than relying only on the filename extension or the MIME type supplied by the browser.
 
 ## 🚀 Local development
 
