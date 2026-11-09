@@ -1,159 +1,125 @@
-# ⚽ Authentication & Cookie Session
+# Authentication & Cookie Session
 
-> **A small Ronaldo photo gallery and a hands-on journey into secure backend development.**
+A hands-on learning project for practicing Spring Security authentication, server-side sessions, and cookie-based API protection. It is aimed at a developer who already understands the basic flow of a Spring application and wants to build a more secure backend through implementation.
 
-Authentication & Cookie Session is a learning project for building a photo website where visitors can browse Cristiano Ronaldo photos and an admin can manage the gallery. The project is designed to make the fundamentals of REST APIs, Spring Boot request flow, authentication, sessions, cookies, and authorization easier to understand through practical implementation.
+The application is a Ronaldo photo gallery. Visitors can browse the gallery; a single administrator can sign in, upload images, and delete images.
 
-> [!NOTE]
-> This repository currently describes the project plan. Implementation details, routes, and run commands should be updated as the application takes shape.
+> **Project status:** Confirmed Phase 1 requirements are documented here. API-contract details, implementation status, versions, commands, environment variables, and other configuration values remain to be finalized or verified. Do not treat documented requirements or setup instructions as proof of implementation.
 
-## 🎯 Learning goals
+## Phase 1 scope
 
-- Understand how an HTTP request travels through a backend application.
-- Design and implement REST APIs with Java and Spring Boot.
-- Learn Spring Security fundamentals and common configuration patterns.
-- Understand server-side sessions, browser cookies, and login behavior.
-- Practice building a backend that is secure, maintainable, and efficient.
-- Use AI as a learning and development assistant while checking and understanding the code it produces.
+- Visitors can browse the public image gallery.
+- The gallery loads the first 10 images and fetches additional images in pages of 20 as the visitor scrolls (infinite scrolling).
+- One administrator signs in with email and password, uploads image files, and deletes images.
+- The admin can log out; logout invalidates the server-side session.
+- Image files are stored in Supabase Storage. Supabase Database (PostgreSQL) stores image records containing the image URL only; no title or description is required.
+- Redis is used for server-side session storage.
+- Uploaded images must use the approved formats `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`, with a maximum file size of 15 MB.
+- Server-side sessions last 10 minutes and use session rotation.
+- CSRF tokens are generated with `SecureRandom` and encoded using Base64 URL encoding.
+- Login requests are limited to 3 requests per second.
 
-## ✨ Planned features
+See [PRD.md](PRD.md) for product requirements, flows, security expectations, and acceptance criteria.
 
-| Role | Planned abilities |
-| --- | --- |
-| Visitor | Browse the public Ronaldo photo gallery without signing in. |
-| Admin | Sign in, add photos, and delete photos. |
+## Learning goals
 
-**Photo storage:** To be defined. The database choice for photo metadata and the storage location for image files have not yet been specified.
+- Understand how requests move through a Spring Boot application.
+- Practice REST API design with Java and Spring Boot.
+- Learn Spring Security authentication and authorization.
+- Understand server-side sessions, cookies, and login/logout behavior.
+- Apply CSRF protection and safe image upload validation.
+- Use AI as a learning and development assistant while reviewing and understanding generated code.
 
-## 🧰 Technology stack
+## Confirmed technology stack
 
-| Area | Technologies |
+| Area | Technology |
 | --- | --- |
 | Frontend | Next.js, TypeScript |
 | Backend | Java, Spring Boot, Spring Web MVC, Spring Security, Spring Data JPA, Bean Validation |
-| File uploads | Spring Web multipart/form-data support; server-side image size and actual content/type validation |
-| Testing | JUnit 5, Mockito, Testcontainers |
-| Database | PostgreSQL |
-| Session store | Redis (planned; exact session configuration to be defined) |
+| Database | Supabase Database (PostgreSQL) |
+| Image storage | Supabase Storage |
+| Session store | Redis |
+| Testing | JUnit 5, Mockito, Testcontainers (planned) |
 
-## 🏗️ Architecture and request flow
+Versions and exact service configuration have not yet been finalized.
 
-The frontend runs separately from the backend. The browser communicates with the Spring Boot REST API. PostgreSQL is planned for persistent application data; Redis is listed for session storage, but its exact use remains to be implemented and documented.
+## Architecture overview
+
+The frontend runs separately from the backend in the same Git repository. The browser communicates with the Spring Boot REST API. The backend authenticates the administrator, stores session state in Redis, reads and writes image URL records in Supabase Database, and uploads/removes image files in Supabase Storage.
 
 ```mermaid
 flowchart LR
-    V[Visitor or admin browser] --> FE[Next.js frontend\nlocalhost:3000]
-    FE -->|REST API requests| BE[Spring Boot API\nlocalhost:8080]
-    BE -->|application data| PG[(PostgreSQL)]
-    BE -. planned session storage .-> R[(Redis)]
-    BE -->|session cookie on login response| V
-    V -->|cookie on later requests| BE
+    B[Browser] --> FE[Next.js frontend]
+    FE -->|REST API and session cookie| BE[Spring Boot API]
+    BE -->|image URL records| DB[(Supabase Database
+PostgreSQL)]
+    BE -->|upload and delete image files| ST[(Supabase Storage)]
+    BE -->|server-side sessions| R[(Redis)]
 ```
 
-Typical admin flow: submit login credentials → backend authenticates the admin → backend creates a server-side session and returns a session cookie → browser includes that cookie in subsequent requests → Spring Security checks authentication and authorization before allowing photo-management actions.
+## Security notes
 
-## 🔐 Authentication, sessions, and cookies
+- Gallery reads are public; image management requires an authenticated administrator.
+- Cookie-based authentication must use an explicitly configured CSRF defense for state-changing requests.
+- Configure appropriate cookie attributes, including `HttpOnly`, `Secure` for HTTPS deployments, and a suitable `SameSite` policy.
+- Validate uploaded image size and actual file content/type on the server. Accept only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB. Do not trust only the extension or browser-supplied MIME type.
+- The initial admin account should be provisioned through a seed or migration. Store only a password hash in the database, and supply the initial password through secret configuration rather than committing it to source control.
+- Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Limit login requests to 3 requests per second.
+- These are project requirements and learning goals, not a claim that the application is production-ready.
 
-The planned admin login uses a **server-side session**. The browser stores a session identifier in a cookie; the session data itself is held by the backend’s session mechanism. The browser sends the cookie with later requests so the backend can associate them with the signed-in admin.
+## Local development
 
-A session cookie does not automatically mean “remember me.” A browser may discard a session cookie when its session ends, so users should not be promised that closing and reopening the browser preserves their login. Persistent login requires an explicitly designed and secured mechanism with its own lifetime and revocation behavior.
-
-Cookie settings, session expiration, credential handling, and the Redis integration are **to be defined and verified during implementation**.
-
-## 🛡️ Authorization and security
-
-Planned access rules:
-
-- Gallery read operations are public.
-- Login is available to unauthenticated admins.
-- Adding or deleting photos requires an authenticated admin.
-
-Because browsers automatically attach cookies to requests, cookie-based authentication requires careful **CSRF (Cross-Site Request Forgery) protection** for state-changing operations. The implementation should configure and document its CSRF strategy rather than disabling protection without justification. Also define appropriate cookie attributes (such as `HttpOnly`, `Secure` in HTTPS deployments, and `SameSite`), validate inputs, and avoid committing secrets.
-
-These are learning goals, not a claim that the project is production-ready.
-
-### Image upload validation
-
-Image uploads use Spring Web multipart support. The server must validate each image's size and actual content/type before accepting or storing it. Validation must inspect the file content rather than relying only on the filename extension or the MIME type supplied by the browser.
-
-## 🚀 Local development
-
-### Local addresses
-
-| Application | Address |
-| --- | --- |
-| Frontend | `http://localhost:3000` |
-| Backend | `http://localhost:8080` |
-
-The backend is intended to run locally on the developer’s machine.
+This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend. The frontend runs at `localhost:3000`; the frontend directory and local service setup still need to be documented once finalized.
 
 ### Prerequisites
 
-Install the required Java version, Node.js, package manager, PostgreSQL, and Redis versions once they are selected. Exact versions and installation steps are **TODO**.
+Confirm and document the required versions and setup instructions for Java, Node.js, the package manager, Supabase, and Redis. If a local Supabase environment is used, document its setup as well.
 
-### Run the applications
+### Run and test
 
-Repository layout and build tooling are not available yet, so use these as placeholders and replace them with verified commands:
-
-```bash
-# TODO: Start PostgreSQL and Redis using the chosen local setup.
-
-# TODO: Start the Spring Boot backend from its actual project directory.
-
-# TODO: Start the Next.js frontend from its actual project directory.
-```
-
-## ⚙️ Configuration
-
-Environment variable names and configuration files have not been defined. Document them here once chosen. Do not place real passwords, session secrets, or other credentials in the repository.
-
-| Setting | Purpose | Name / value |
-| --- | --- | --- |
-| Backend port | Spring Boot API | `8080` (planned local address) |
-| Frontend port | Next.js app | `3000` (planned local address) |
-| PostgreSQL connection | Persistent data | TODO |
-| Redis connection | Session storage | TODO |
-| Admin credentials | Development login | TODO; provide securely outside source control |
-
-## 🧪 Testing
-
-Planned test tools are JUnit 5, Mockito, and Testcontainers. Testcontainers can run integration tests against disposable service containers; exact test scope and Docker requirements are to be documented with the implementation.
+Use the repository's Maven wrapper for backend tasks. Frontend commands and required services should be verified and documented later, after implementation is completed.
 
 ```bash
-# TODO: Add the verified backend test command (Maven or Gradle).
-# TODO: Add the verified frontend test or check command.
+# TODO: Document the required local Supabase and Redis setup.
+# TODO: Add verified backend run and test commands.
+# TODO: Add the frontend location and verified run commands later.
 ```
 
-Test cases should cover public gallery access, successful and failed login, session behavior, unauthorized and forbidden admin actions, validation errors, and CSRF behavior.
+## Configuration
 
-## 📡 API outline
+Environment variable names and safe example values are intentionally not documented yet. Document them later after configuration is implemented, and keep credentials and secrets outside source control.
 
-These are suggested operations, not implemented or confirmed endpoint paths. Define the route names, request/response formats, and error responses in the API contract before treating them as final.
+| Setting | Status |
+| --- | --- |
+| Backend and frontend ports | Frontend: `localhost:3000`; backend: planned local address `localhost:8080`, verify during implementation |
+| Supabase database connection | To be documented |
+| Supabase Storage configuration | To be documented |
+| Redis connection | To be documented |
+| Initial admin email/password | Supply securely outside source control; exact provisioning configuration to be documented |
 
-| Operation | Access | Status |
-| --- | --- | --- |
-| List photos | Public | Planned; route to be defined |
-| Get photo details | Public | Optional; route to be defined |
-| Admin login | Admin credentials | Planned; route to be defined |
-| Admin logout | Authenticated admin | Planned; route to be defined |
-| Add a photo | Authenticated admin | Planned; route to be defined |
-| Delete a photo | Authenticated admin | Planned; route to be defined |
+## API outline
 
-## 🗂️ Project structure
+These are confirmed operations, but not confirmed route names or implemented endpoints. Define request/response schemas and errors in the API contract later; those API-contract details remain deferred.
 
-Not documented yet. Add the actual frontend and backend directory trees after their repositories or folders are created.
+| Operation | Access |
+| --- | --- |
+| List gallery images with pagination | Public |
+| Admin login | Administrator credentials |
+| Admin logout | Authenticated administrator |
+| Upload an image | Authenticated administrator |
+| Delete an image | Authenticated administrator |
 
-## 🗺️ Roadmap
+## Current repository
 
-- [ ] Create the frontend and Spring Boot project structure.
-- [ ] Define the API contract and photo data model.
-- [ ] Build public gallery read operations.
-- [ ] Add admin authentication with Spring Security and server-side sessions.
-- [ ] Configure Redis for sessions if it fits the implementation.
-- [ ] Protect photo-management operations with authorization and CSRF defenses.
-- [ ] Add validation and automated unit and integration tests.
-- [ ] Document verified setup, configuration, and run commands.
+This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend in the same Git repository. Document the frontend directory and verified commands when the frontend structure is finalized.
 
----
+## Roadmap
 
-Made for learning, one request and one session at a time. 🔐
+- [ ] Finalize the API contract and image data model.
+- [ ] Implement public image listing with initial page size 10 and subsequent page size 20.
+- [ ] Implement admin authentication with Spring Security and Redis-backed sessions.
+- [ ] Provision the single admin account securely.
+- [ ] Protect upload and delete operations with authorization and CSRF defenses.
+- [ ] Integrate Supabase Storage and Supabase Database.
+- [ ] Add server-side upload validation and automated tests.
+- [ ] Document verified setup, configuration, run, and test commands.

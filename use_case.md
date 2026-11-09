@@ -1,15 +1,15 @@
 # Use Cases — Authentication & Cookie Session
 
 > **Project:** Ronaldo Photo Gallery  
-> **Purpose:** Practice REST API design, Spring Boot request flow, Spring Security, cookie-based sessions, authorization, validation, and local image-file handling.
+> **Purpose:** Practice REST API design, Spring Boot request flow, Spring Security, cookie-based sessions, authorization, validation, and Supabase image-file handling.
 
 ## 1. Scope and assumptions
 
 The website lets visitors browse a public gallery of Ronaldo photos. An administrator signs in and can upload and delete image files.
 
-For image uploads, the admin selects a file from their device. The frontend sends the file to the backend as `multipart/form-data`. The backend validates and stores the file on its local filesystem, then stores image metadata and a reference to the stored file in PostgreSQL. The browser receives a URL or API route that can be used to display the image; the uploaded file itself is not stored as a database URL string.
+For image uploads, the admin selects a file from their device. The frontend sends the file to the backend as `multipart/form-data`. The backend validates and uploads the file to Supabase Storage, then stores only the resulting image URL in Supabase Database (PostgreSQL). The browser receives the image URL that can be used to display the image.
 
-This is a local learning project. Local filesystem storage is suitable for development, but deployment behavior, backup, and shared storage are not defined here. Exact endpoint paths, response envelope, image size limit, supported formats, and filesystem location are **to be defined** during API design.
+This is a learning project. Supabase Storage is the official Phase 1 image-file storage solution. Exact endpoint paths, response envelope, Supabase bucket access policy, and other API-contract details are **deferred** until API design is completed.
 
 ## 2. Actors
 
@@ -29,6 +29,7 @@ This is a local learning project. Local filesystem storage is suitable for devel
 | UC03 | Check an existing admin session | Admin | Requires a valid session cookie |
 | UC04 | Upload an image | Admin | Authenticated admin only |
 | UC05 | Delete an image | Admin | Authenticated admin only |
+| UC06 | Log out as admin | Admin | Authenticated admin only |
 
 ## UC01 — Browse all gallery images
 
@@ -40,8 +41,8 @@ This is a local learning project. Local filesystem storage is suitable for devel
 
 1. Visitor opens the gallery page.
 2. Frontend requests the gallery from the backend.
-3. Backend retrieves image metadata for the available images from PostgreSQL.
-4. Backend returns a successful response containing image identifiers, display metadata, and image URLs or resource paths.
+3. Backend retrieves image URL records from Supabase Database.
+4. Backend returns a successful response containing the available image URLs.
 5. Frontend loads and displays the images.
 
 **Alternative flows:**
@@ -98,17 +99,17 @@ This is a local learning project. Local filesystem storage is suitable for devel
 
 **Goal:** Let an authenticated admin add an image selected from their device to the gallery.
 
-**Preconditions:** Admin has a valid authenticated session. The selected file meets the defined size and format rules.
+**Preconditions:** Admin has a valid authenticated session. The selected file is no larger than 15 MB and uses one of the allowed formats: `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`.
 
 **Main flow:**
 
 1. Admin selects an image file in the frontend.
-2. Frontend sends a `multipart/form-data` request containing the file and any defined metadata. The browser attaches the session cookie; the request also satisfies the configured CSRF protection.
+2. Frontend sends a `multipart/form-data` request containing the file. The browser attaches the session cookie; the request also satisfies the configured CSRF protection.
 3. Backend confirms the requester is authenticated and authorized as an admin.
 4. Backend validates the upload, including size and allowed image content/type. Client-provided filename and MIME type alone are not trusted.
-5. Backend generates a safe server-side filename and stores the file under the configured local upload directory, outside the public web root where applicable.
-6. Backend stores metadata and a safe file reference in PostgreSQL.
-7. Backend returns a success response with the new image's identifier and display resource URL/path.
+5. Backend generates a safe server-side storage object name and stores the file in Supabase Storage.
+6. Backend stores only the resulting image URL in Supabase Database.
+7. Backend returns a success response containing the new image URL.
 8. Frontend refreshes or updates the gallery.
 
 **Alternative flows:**
@@ -116,10 +117,10 @@ This is a local learning project. Local filesystem storage is suitable for devel
 - **Unauthenticated requester:** Return `401 Unauthorized`.
 - **Authenticated requester without admin authority:** Return `403 Forbidden`.
 - **Missing, empty, unsupported, or invalid image:** Return a suitable client error such as `400 Bad Request` or `415 Unsupported Media Type`.
-- **File exceeds configured limit:** Return `413 Payload Too Large`.
-- **Storage or database failure:** Return a generic server error, log diagnostic details safely, and avoid leaving an inconsistent file/metadata state. Define cleanup or transaction-compensation behavior.
+- **File exceeds 15 MB or uses an unsupported format:** Return an appropriate client error. The exact response schema remains deferred to API-contract design.
+- **Storage or database failure:** Return a generic server error, log diagnostic details safely, and avoid leaving an inconsistent Storage object or URL record. Define cleanup or transaction-compensation behavior.
 
-**Postconditions:** On success, the image file is stored locally, its metadata is persisted, and it is available to UC01.
+**Postconditions:** On success, the image file is stored in Supabase Storage, its image URL is persisted in Supabase Database, and it is available to UC01.
 
 ## UC05 — Delete an image
 
@@ -130,9 +131,9 @@ This is a local learning project. Local filesystem storage is suitable for devel
 **Main flow:**
 
 1. Admin selects an image and confirms deletion.
-2. Frontend sends a delete request for the image identifier. The browser attaches the session cookie and the request satisfies CSRF protection.
+2. Frontend sends a delete request identifying the selected image. The browser attaches the session cookie and the request satisfies CSRF protection.
 3. Backend verifies authentication and admin authorization.
-4. Backend finds the image record and removes the image from the gallery and its stored file, following the defined consistency strategy.
+4. Backend finds the image URL record and removes the image from the gallery, its Supabase Storage object, and its URL record, following the defined consistency strategy.
 5. Backend returns a success response.
 6. Frontend removes the image from the displayed gallery.
 
@@ -141,9 +142,9 @@ This is a local learning project. Local filesystem storage is suitable for devel
 - **Unauthenticated requester:** Return `401 Unauthorized`.
 - **Authenticated requester without admin authority:** Return `403 Forbidden`.
 - **Image does not exist:** Return `404 Not Found` (or document an intentionally idempotent delete policy).
-- **File or database deletion failure:** Return a generic server error and log details. Define how the application reconciles a missing file or orphaned metadata.
+- **Storage or database deletion failure:** Return a generic server error and log details. Define how the application reconciles a missing Storage object or orphaned URL record.
 
-**Postconditions:** On success, the image no longer appears in the gallery and its stored file is removed according to the deletion policy.
+**Postconditions:** On success, the image no longer appears in the gallery, its Supabase Storage object is removed, and its URL record is removed according to the deletion policy.
 
 ## 4. Cross-cutting rules
 
@@ -153,16 +154,42 @@ This is a local learning project. Local filesystem storage is suitable for devel
 - Session cookies should be configured securely (for example, `HttpOnly`, `Secure` when using HTTPS, and an appropriate `SameSite` value).
 - Never log passwords, raw session IDs, or sensitive cookie values.
 - Validate uploaded content on the server. Do not trust the original filename, extension, or browser-supplied content type.
-- Store generated filenames and metadata; avoid using a user-supplied path as a filesystem path.
-- Define limits for upload size and supported formats, and constrain storage paths to prevent path traversal.
-- Keep database records and filesystem contents consistent when uploads or deletions partially fail.
+- Use a safe server-side Supabase Storage object name; do not use a user-supplied path as a storage path.
+- Accept only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files, enforce a maximum upload size of 15 MB, and validate actual file content/type on the server.
+- Keep Supabase Storage objects and database URL records consistent when uploads or deletions partially fail.
+- Server-side sessions are stored in Redis, have a lifetime of 10 minutes, and use session rotation.
+- Generate CSRF tokens using `SecureRandom` and encode them using Base64 URL encoding.
+- Limit login requests to 3 requests per second.
 
 ## 5. Open design decisions
 
 - Exact REST endpoint paths and request/response schemas.
 - Whether UC03 uses a dedicated session-status endpoint or relies on normal protected requests.
-- Supported image formats and maximum upload size.
-- Local upload directory configuration and whether image delivery uses a static resource route or a controller endpoint.
-- Metadata fields stored in PostgreSQL and ordering/pagination behavior for UC01.
-- File/database consistency and cleanup strategy for failed uploads and deletions.
-- Session lifetime, Redis-backed session configuration, logout behavior, and CSRF token delivery to the frontend.
+- Supabase Storage bucket access policy and whether image delivery uses public access or signed URLs.
+- Ordering and pagination behavior for UC01; API pagination conventions and response schemas remain deferred to API-contract design.
+- Storage/database consistency and cleanup strategy for failed uploads and deletions.
+- Session cookie configuration, CSRF token delivery to the frontend, and other API-contract details.
+
+## 6. Additional Phase 1 requirements
+
+- Phase 1 has one administrator account. Multiple administrator accounts and public user accounts are out of scope.
+- Gallery loading uses infinite scrolling. The initial request returns up to 10 images; subsequent requests return up to 20 images per page and stop when no more images are available.
+- Before an upload is submitted, the frontend displays a temporary preview of the selected local image.
+- Phase 1 image records contain the image URL only. Image titles, captions, descriptions, and other image metadata are out of scope.
+- Server-side sessions are stored in Redis.
+- The initial administrator account is provisioned through a seed or migration. Only a one-way password hash is stored, and the initial password is supplied through secret configuration rather than committed to source control.
+
+## UC06 — Log out as admin
+
+**Goal:** Let the authenticated administrator end the current session.
+
+**Preconditions:** Admin has a valid authenticated session.
+
+**Main flow:**
+
+1. Admin requests logout from the frontend.
+2. Backend invalidates the server-side session stored in Redis.
+3. Backend clears or expires the session cookie.
+4. Frontend updates the UI to the unauthenticated state.
+
+**Postconditions:** Subsequent requests to protected operations are unauthenticated and denied.
