@@ -9,15 +9,19 @@ The application is a Ronaldo photo gallery. Visitors can browse the gallery; a s
 ## Phase 1 scope
 
 - Visitors can browse the public image gallery.
-- The gallery loads the first 10 images and fetches additional images in pages of 20 as the visitor scrolls (infinite scrolling).
+- The gallery loads the first 10 images and fetches additional images in pages of 10 as the visitor scrolls (infinite scrolling).
 - One administrator signs in with email and password, uploads image files, and deletes images.
 - The admin can log out; logout invalidates the server-side session.
-- Image files are stored in Supabase Storage. Supabase Database (PostgreSQL) stores image records containing the image URL only; no title or description is required.
+- Image files are stored in the public Supabase Storage `gallery` bucket at the fixed path `images/{imageId}`. Supabase Database (PostgreSQL) stores application gallery records containing `imageId`, the business field `image_url`, and the system-managed `created_at` field; no title, caption, description, or other user-provided metadata is required.
 - Redis is used for server-side session storage.
 - Uploaded images must use the approved formats `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`, with a maximum file size of 15 MB.
 - Server-side sessions last 10 minutes and use session rotation.
 - CSRF tokens are generated with `SecureRandom` and encoded using Base64 URL encoding.
 - Login requests are limited to 3 requests per second.
+- The public CSRF endpoint is `POST /api/v1/csrf-token`, with no request body, path variable, or query parameter.
+- The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie; it does not return the token in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for protected state-changing requests.
+- Gallery pagination uses an opaque `nextCursor`: the initial request omits it, subsequent requests send it, and every request returns up to 10 images.
+- API responses use a common `status`, `code`, `message`, `timestamp`, and endpoint-specific `data` envelope. Successful login and image upload return `201 Created`; successful logout and image deletion return `200 OK`.
 
 See [PRD.md](PRD.md) for product requirements, flows, security expectations, and acceptance criteria.
 
@@ -45,7 +49,7 @@ The verified backend toolchain uses Java `21.0.12`, Maven Wrapper `3.10.0`, and 
 
 ## Architecture overview
 
-The frontend runs separately from the backend in the same Git repository. The browser communicates with the Spring Boot REST API. The backend authenticates the administrator, stores session state in Redis, reads and writes image URL records in Supabase Database, and uploads/removes image files in Supabase Storage.
+The frontend runs separately from the backend in the same Git repository. The browser communicates with the Spring Boot REST API. The backend authenticates the administrator, stores session state in Redis, reads and writes gallery records in `public.images`, and uploads/removes actual image files in the Supabase Storage `gallery` bucket.
 
 ```mermaid
 flowchart LR
@@ -57,12 +61,27 @@ PostgreSQL)]
     BE -->|server-side sessions| R[(Redis)]
 ```
 
+The actual image binary is stored in Supabase Storage, not PostgreSQL. The `public.images` table stores the application gallery record, including `imageId`, `image_url`, and system-managed `created_at`. Gallery queries order records with `ORDER BY created_at DESC, id DESC` so newly uploaded images appear first. The supporting index is:
+
+```sql
+CREATE INDEX idx_images_created_at
+ON public.images (created_at DESC);
+```
+
+The upload flow generates an `imageId`, creates the fixed Storage object path `images/{imageId}`, validates the image, uploads it to the public `gallery` bucket, obtains its URL, and inserts the `imageId`, `image_url`, and `created_at` into `public.images`. Delete requests use `imageId` to recreate the same `images/{imageId}` path, delete the file through the Supabase Storage API, and then delete the corresponding database record. Storage objects must not be deleted directly from `storage.objects` with SQL.
+
+The gallery list request omits `nextCursor` for the first page. Each subsequent request sends the opaque cursor returned by the previous response. Responses include `limit`, `nextCursor`, and `hasNextPage` pagination metadata, with up to 10 images per request.
+
 ## Security notes
 
 - Gallery reads are public; image management requires an authenticated administrator.
+- The Supabase Storage `gallery` bucket is public for image delivery; upload and delete operations remain protected by the backend.
 - Cookie-based authentication must use an explicitly configured CSRF defense for state-changing requests.
-- Configure appropriate cookie attributes, including `HttpOnly`, `Secure` for HTTPS deployments, and a suitable `SameSite` policy.
+- The frontend obtains a CSRF token from the public `POST /api/v1/csrf-token` endpoint, reads it from the `XSRF-TOKEN` cookie, and sends it in the `X-XSRF-TOKEN` header for protected state-changing requests.
+- During local development, configure the session cookie as `HttpOnly; SameSite=Lax` with `Secure` disabled and `Domain` omitted (host-only). Configure the frontend-readable `XSRF-TOKEN` cookie with `Path=/; SameSite=Lax`, `Secure` disabled, and `Domain` omitted; it must not be `HttpOnly`. Enable `Secure` when deploying over HTTPS.
 - Validate uploaded image size and actual file content/type on the server. Accept only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB. Do not trust only the extension or browser-supplied MIME type.
+- Generate `imageId` before upload, store the file at `images/{imageId}` in the public Supabase Storage `gallery` bucket, and store the resulting `imageId`, `image_url`, and system-managed `created_at` in `public.images`.
+- Use `imageId`, not `imageURL`, when requesting image deletion. Delete the Storage object through the Supabase Storage API and remove the corresponding `public.images` record.
 - The initial admin account should be provisioned through a seed or migration. Store only a password hash in the database, and supply the initial password through secret configuration rather than committing it to source control.
 - Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Limit login requests to 3 requests per second.
 - These are project requirements and learning goals, not a claim that the application is production-ready.
@@ -142,15 +161,16 @@ Values containing shell-sensitive characters such as `&`, `$`, `!`, `#`, spaces,
 
 ## API outline
 
-These are confirmed operations, but not confirmed route names or implemented endpoints. Define request/response schemas and errors in the API contract later; those API-contract details remain deferred.
+These are confirmed operations, but most route names and implementation status remain to be finalized. The CSRF endpoint, cursor pagination behavior, common response envelope, and successful-operation status codes are confirmed above; remaining endpoint-specific request/response schemas and errors should be defined in the API contract.
 
-| Operation | Access |
-| --- | --- |
-| List gallery images with pagination | Public |
-| Admin login | Administrator credentials |
-| Admin logout | Authenticated administrator |
-| Upload an image | Authenticated administrator |
-| Delete an image | Authenticated administrator |
+| Operation | Access | Successful status |
+| --- | --- | --- |
+| Get CSRF token: `POST /api/v1/csrf-token` | Public | `200 OK` |
+| List gallery images with `nextCursor` pagination | Public | `200 OK` |
+| Admin login | Administrator credentials | `201 Created` |
+| Admin logout | Authenticated administrator | `200 OK` |
+| Upload an image | Authenticated administrator | `201 Created` |
+| Delete an image using `imageId` | Authenticated administrator | `200 OK` |
 
 ## Current repository
 
@@ -158,8 +178,8 @@ This repository is intended to contain both the Spring Boot backend and the Next
 
 ## Roadmap
 
-- [ ] Finalize the API contract and image data model.
-- [ ] Implement public image listing with initial page size 10 and subsequent page size 20.
+- [x] Finalize the API contract and image data model, including the supporting `created_at` index.
+- [ ] Implement public image listing with initial and subsequent page sizes of 10, ordered by newest `created_at` first.
 - [ ] Implement admin authentication with Spring Security and Redis-backed sessions.
 - [ ] Provision the single admin account securely.
 - [ ] Protect upload and delete operations with authorization and CSRF defenses.

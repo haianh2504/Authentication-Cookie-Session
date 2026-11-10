@@ -1,0 +1,417 @@
+# API Contract — Authentication & Cookie Session
+
+This contract is based on `PRD.md`, `README.md`, `use_case.md`, and the current database model.
+
+The API uses cookie-based server-side sessions. The browser stores and sends the session cookie automatically. Clients must not send or receive a raw session identifier in a request header or response body.
+
+## Common conventions
+
+### Base path
+
+```text
+/api/v1
+```
+
+### Successful response envelope
+
+Every successful response uses this envelope:
+
+```json
+{
+  "status": 200,
+  "code": "OPERATION_SUCCESS",
+  "message": "Operation completed successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {}
+}
+```
+
+Fields:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | Integer | Yes | HTTP status code. |
+| `code` | String | Yes | Stable application result code. |
+| `message` | String | Yes | Safe human-readable message. |
+| `timestamp` | String | Yes | ISO 8601 date-time. |
+| `data` | Object or array | Yes | Operation-specific response data. |
+
+### Error response envelope
+
+Errors use the same top-level envelope:
+
+```json
+{
+  "status": 400,
+  "code": "VALIDATION_ERROR",
+  "message": "The request contains invalid values",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "errors": [
+      {
+        "field": "email",
+        "message": "Email is required"
+      }
+    ]
+  }
+}
+```
+
+The API must not expose passwords, raw session identifiers, storage credentials, or internal exception details.
+
+### Authentication and CSRF
+
+- Public operations do not require an authenticated session.
+- Protected operations use the session cookie created during admin login.
+- The CSRF token is obtained from `POST /api/v1/csrf-token` and stored in the `XSRF-TOKEN` cookie.
+- State-changing cookie-authenticated requests copy the `XSRF-TOKEN` cookie value into the `X-XSRF-TOKEN` header.
+- The token is generated with `SecureRandom` and encoded with Base64 URL encoding.
+- The CSRF token is not returned in `data.token`.
+- During local development, the session cookie uses `HttpOnly; SameSite=Lax`, with `Secure` disabled and `Domain` omitted. The `XSRF-TOKEN` cookie uses `Path=/; SameSite=Lax`, with `Secure` disabled and `Domain` omitted; it is not `HttpOnly` so the frontend can read it. Enable `Secure` when deploying over HTTPS. Cookie attributes are response configuration, not request-body fields.
+
+### Image and pagination conventions
+
+- The database field `image_url` is represented as `imageURL` in API responses.
+- Image identity is represented by `imageId`, which is a UUID.
+- The image binary is stored in the public Supabase Storage `gallery` bucket at the fixed object path `images/{imageId}`. It is not stored in PostgreSQL.
+- The backend generates `imageId` before the Storage upload and inserts the same ID into `public.images`.
+- The `public.images.created_at` field is used internally for newest-first ordering and is not required in the public image item.
+- Gallery results use `created_at DESC, id DESC` ordering.
+- The initial gallery request omits `nextCursor`.
+- Every gallery request returns up to 10 images.
+- Subsequent gallery requests send the opaque `nextCursor` returned by the previous response.
+- Clients must not decode or construct a cursor.
+
+## UC00: Get a CSRF token
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Public |
+| Method | `POST` |
+| Endpoint | `/api/v1/csrf-token` |
+| Request body | None |
+| Path variables | None |
+| Query parameters | None |
+| Required headers | `Accept: application/json` |
+
+### Success response
+
+**Status:** `200 OK`
+
+The server sets the CSRF token in a cookie:
+
+```http
+Set-Cookie: XSRF-TOKEN=base64-url-encoded-token; Path=/; SameSite=Lax
+```
+
+The cookie must be readable by the frontend so the frontend can copy its value into the `X-XSRF-TOKEN` header. The token is not returned in `data.token`.
+
+```json
+{
+  "status": 200,
+  "code": "CSRF_TOKEN_RETRIEVING_SUCCESSFULLY",
+  "message": "CSRF token retrieved successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {}
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `500 Internal Server Error` | The server could not generate the token. |
+
+## UC01: Browse gallery images
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Public |
+| Method | `GET` |
+| Endpoint | `/api/v1/images` |
+| Request body | None |
+| Path variables | None |
+| Required headers | `Accept: application/json` |
+
+Optional query parameter:
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `nextCursor` | String | No | Opaque cursor from the previous response. Omit for the initial request. |
+
+The server always applies a maximum page size of 10. The client does not submit a `limit` parameter.
+
+### Success response
+
+**Status:** `200 OK`
+
+```json
+{
+  "status": 200,
+  "code": "IMAGES_RETRIEVING_SUCCESSFULLY",
+  "message": "Retrieving image gallery successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "items": [
+      {
+        "imageId": "550e8400-e29b-41d4-a716-446655440000",
+        "imageURL": "https://example.supabase.co/storage/v1/object/public/gallery/images/550e8400-e29b-41d4-a716-446655440000"
+      }
+    ],
+    "pagination": {
+      "limit": 10,
+      "nextCursor": "opaque-cursor-value",
+      "hasNextPage": true
+    }
+  }
+}
+```
+
+When no more images are available, the server returns `200 OK` with an empty `items` array and `nextCursor: null`.
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `500 Internal Server Error` | The server could not retrieve the gallery. |
+
+## UC02: Sign in as admin
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Public; valid credentials required |
+| Method | `POST` |
+| Endpoint | `/api/v1/auth/admin` |
+| Request body | JSON |
+| Required headers | `Content-Type: application/json`, `Accept: application/json` |
+
+```json
+{
+  "email": "admin@example.com",
+  "password": "secret-password"
+}
+```
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `email` | String | Yes | Must be present and valid. |
+| `password` | String | Yes | Must be present. Never log it. |
+
+### Success response
+
+**Status:** `201 Created`
+
+The server creates a Redis-backed session and sends the session cookie through `Set-Cookie`. The response body does not contain a raw session ID.
+
+```json
+{
+  "status": 201,
+  "code": "ADMIN_LOGIN_SUCCESSFULLY",
+  "message": "Admin login successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "authenticated": true
+  }
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400 Bad Request` | Required or malformed fields. |
+| `401 Unauthorized` | Credentials are invalid. The response must not reveal whether the email or password was wrong. |
+| `429 Too Many Requests` | The login rate limit of 3 requests per second was exceeded. |
+| `500 Internal Server Error` | Authentication service failure. |
+
+## UC03: Check the current admin session
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Authenticated admin session |
+| Method | `GET` |
+| Endpoint | `/api/v1/auth/admin/sessions` |
+| Request body | None |
+| Required headers | `Accept: application/json`; browser session cookie |
+| CSRF header | Not required for this safe `GET` request |
+
+### Success response
+
+**Status:** `200 OK`
+
+```json
+{
+  "status": 200,
+  "code": "ADMIN_SESSION_RETRIEVING_SUCCESSFULLY",
+  "message": "Admin session is valid",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "authenticated": true
+  }
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `401 Unauthorized` | The session cookie is missing, invalid, or expired. |
+| `500 Internal Server Error` | The session could not be checked. |
+
+## UC04: Upload an image
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Authenticated admin session |
+| Method | `POST` |
+| Endpoint | `/api/v1/images` |
+| Request body | `multipart/form-data` |
+| Required headers | Browser session cookie, `X-XSRF-TOKEN`, `Accept: application/json` |
+
+Multipart field:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `file` | Binary file | Yes | Maximum 15 MB; allowed formats are `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF`; the server validates actual content/type. |
+
+The backend generates `imageId`, creates the fixed object path `images/{imageId}`, uploads the file to the public `gallery` bucket, obtains the resulting URL, and inserts `imageId`, `image_url`, and `created_at` into `public.images`. If the database insert fails after the Storage upload, the backend cleans up the uploaded Storage object through the Storage API.
+
+### Success response
+
+**Status:** `201 Created`
+
+```json
+{
+  "status": 201,
+  "code": "IMAGE_UPLOAD_SUCCESSFULLY",
+  "message": "Image uploaded successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "imageId": "550e8400-e29b-41d4-a716-446655440000",
+    "imageURL": "https://example.supabase.co/storage/v1/object/public/gallery/images/550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400 Bad Request` | The file is missing or empty. |
+| `401 Unauthorized` | No valid admin session is present. |
+| `403 Forbidden` | The authenticated user is not authorized as an admin. |
+| `413 Payload Too Large` | The file exceeds 15 MB. |
+| `415 Unsupported Media Type` | The file format or actual content/type is not allowed. |
+| `500 Internal Server Error` | Storage or database processing failed. |
+
+## UC05: Delete an image
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Authenticated admin session |
+| Method | `DELETE` |
+| Endpoint | `/api/v1/images/{imageId}` |
+| Request body | None |
+| Required headers | Browser session cookie, `X-XSRF-TOKEN`, `Accept: application/json` |
+
+Path variable:
+
+| Variable | Type | Required | Description |
+| --- | --- | --- | --- |
+| `imageId` | UUID | Yes | ID of the image record in `public.images`. |
+
+The backend finds the `public.images` row, derives the fixed Storage object path `images/{imageId}`, deletes the file through the Supabase Storage API, and then deletes the database row. The API does not accept `imageURL` or an ambiguous `id` parameter for deletion.
+
+### Success response
+
+**Status:** `200 OK`
+
+```json
+{
+  "status": 200,
+  "code": "IMAGE_DELETING_SUCCESSFULLY",
+  "message": "Image deleted successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "deleted": true,
+    "imageId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `401 Unauthorized` | No valid admin session is present. |
+| `403 Forbidden` | The authenticated user is not authorized as an admin. |
+| `404 Not Found` | The image record does not exist. |
+| `500 Internal Server Error` | Storage or database deletion failed. |
+
+## UC06: Log out as admin
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Access | Authenticated admin session |
+| Method | `DELETE` |
+| Endpoint | `/api/v1/auth/admin/session` |
+| Request body | None |
+| Required headers | Browser session cookie, `X-XSRF-TOKEN`, `Accept: application/json` |
+
+### Success response
+
+**Status:** `200 OK`
+
+The backend invalidates the Redis-backed session and clears or expires the session cookie.
+
+```json
+{
+  "status": 200,
+  "code": "ADMIN_LOGOUT_SUCCESSFULLY",
+  "message": "Admin logout successfully",
+  "timestamp": "2026-11-10T15:00:00+07:00",
+  "data": {
+    "authenticated": false
+  }
+}
+```
+
+### Errors
+
+| Status | Meaning |
+| --- | --- |
+| `401 Unauthorized` | No valid admin session is present. |
+| `500 Internal Server Error` | The server could not invalidate the session. |
+
+## Contract decisions and remaining implementation details
+
+The following decisions make the current skeleton internally consistent:
+
+- Session checking uses `GET /api/v1/auth/admin/sessions`.
+- Logout uses `DELETE /api/v1/auth/admin/session` to delete the current authenticated session.
+- Image deletion uses `DELETE /api/v1/images/{imageId}`.
+- The upload multipart field is named `file`.
+- The CSRF endpoint stores the token in the `XSRF-TOKEN` cookie and does not return `data.token`.
+- The `gallery` bucket is public for image delivery.
+- The Storage object path is always `images/{imageId}` inside the `gallery` bucket.
+- The cursor is opaque to clients and is based on the server-side newest-first ordering.
+
+The following remain implementation details rather than client-controlled contract fields:
+
+- The exact session-cookie name and any production-specific deployment attributes.
+- Production-specific cookie deployment values beyond the confirmed local-development configuration, such as enabling `Secure` and configuring a cross-subdomain `Domain`.
+- The exact endpoint-specific error-code catalog beyond the stable meanings and statuses documented above.
