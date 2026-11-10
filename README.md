@@ -4,7 +4,7 @@ A hands-on learning project for practicing Spring Security authentication, serve
 
 The application is a Ronaldo photo gallery. Visitors can browse the gallery; a single administrator can sign in, upload images, and delete images.
 
-> **Project status:** Confirmed Phase 1 requirements are documented here. API-contract details, implementation status, versions, commands, environment variables, and other configuration values remain to be finalized or verified. Do not treat documented requirements or setup instructions as proof of implementation.
+> **Project status:** Confirmed Phase 1 requirements are documented here. API-contract details and some integrations remain to be finalized, while the backend toolchain, tests, packaging, and executable JAR workflow below have been verified. Do not treat documented requirements as proof that every feature is implemented.
 
 ## Phase 1 scope
 
@@ -39,9 +39,9 @@ See [PRD.md](PRD.md) for product requirements, flows, security expectations, and
 | Database | Supabase Database (PostgreSQL) |
 | Image storage | Supabase Storage |
 | Session store | Redis |
-| Testing | JUnit 5, Mockito, Testcontainers (planned) |
+| Testing | JUnit 5, Mockito, Testcontainers |
 
-Versions and exact service configuration have not yet been finalized.
+The verified backend toolchain uses Java `21.0.12`, Maven Wrapper `3.10.0`, and Spring Boot `4.1.2`. Exact external service configuration remains environment-specific.
 
 ## Architecture overview
 
@@ -67,35 +67,78 @@ PostgreSQL)]
 - Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Limit login requests to 3 requests per second.
 - These are project requirements and learning goals, not a claim that the application is production-ready.
 
+### Generated security password
+
+When the Spring Security starter is on the classpath and a custom security configuration has not yet replaced Spring Boot's default security configuration, Spring Boot creates a default development user and generates a random password at startup. The password is printed in the application log with a message such as `Using generated security password`.
+
+This generated password is only for the temporary default development authentication. It is not the `ADMIN_INITIAL_PASSWORD`, the PostgreSQL password, or a Supabase credential. It changes between application starts, must not be committed or used as a production credential, and should disappear once the project's custom administrator authentication is implemented.
+
 ## Local development
 
-This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend. The frontend runs at `localhost:3000`; the frontend directory and local service setup still need to be documented once finalized.
+This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend. The verified backend runs on port `8080`; the frontend is intended to run at `localhost:3000`, but frontend commands are not documented until its package and scripts are available.
 
 ### Prerequisites
 
-Confirm and document the required versions and setup instructions for Java, Node.js, the package manager, Supabase, and Redis. If a local Supabase environment is used, document its setup as well.
+For the verified backend workflow, use Java `21.0.12`, Docker Desktop, and the repository's Maven Wrapper. Docker Desktop is required because the test suite starts PostgreSQL and Redis through Testcontainers. Node.js and frontend setup remain pending until the frontend is added to this repository.
 
 ### Run and test
 
-Use the repository's Maven wrapper for backend tasks. Frontend commands and required services should be verified and documented later, after implementation is completed.
+Use the repository's Maven Wrapper for backend tasks. Load `.env` in the same shell before running the application or executable JAR.
+
+## Verified backend commands
+
+Run these commands from the repository root. The commands below were verified with Java `21.0.12`, Maven Wrapper `3.10.0`, Docker Desktop `29.8.0`, and the configured database credentials.
 
 ```bash
-# TODO: Document the required local Supabase and Redis setup.
-# TODO: Add verified backend run and test commands.
-# TODO: Add the frontend location and verified run commands later.
+export JAVA_HOME="/Users/phanhaianh/Library/Java/JavaVirtualMachines/temurin-21.0.12/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+java -version
+./mvnw -version
+docker info
+
+set -a
+source .env
+set +a
+
+./mvnw clean test
+./mvnw clean package
+java -jar target/Authentication_CookieSession-0.0.1-SNAPSHOT.jar
 ```
+
+`./mvnw clean test` completed with 1 test, 0 failures, and 0 errors. `./mvnw clean package` created the executable JAR at `target/Authentication_CookieSession-0.0.1-SNAPSHOT.jar`. Stop the running application with `Ctrl+C`.
 
 ## Configuration
 
-Environment variable names and safe example values are intentionally not documented yet. Document them later after configuration is implemented, and keep credentials and secrets outside source control.
+`.env.example` is a committed template containing variable names and safe placeholders. Create a local `.env` file from it, keep `.env` out of source control, and load it in the same shell before running the application. Never copy real passwords, service keys, or other secrets into `.env.example` or this README.
+
+```bash
+cp .env.example .env
+set -a
+source .env
+set +a
+```
+
+Values containing shell-sensitive characters such as `&`, `$`, `!`, `#`, spaces, or similar characters should be quoted in `.env`. `SPRING_DATASOURCE_PASSWORD` must be the PostgreSQL database password; it must not be replaced with a Supabase service-role key.
+
+| Variable | Purpose | Current runtime status |
+| --- | --- | --- |
+| `SERVER_PORT` | Intended backend HTTP port | Listed in `.env.example`, but `application.properties` currently sets `server.port=8080` directly; changing this variable has no effect yet |
+| `SPRING_DATASOURCE_URL` | PostgreSQL JDBC connection URL | Required and consumed by `spring.datasource.url` |
+| `SPRING_DATASOURCE_USERNAME` | PostgreSQL database username | Required and consumed by `spring.datasource.username` |
+| `SPRING_DATASOURCE_PASSWORD` | PostgreSQL database password | Required and consumed by `spring.datasource.password` |
+| `SPRING_DATA_REDIS_HOST` | Redis host | Optional at runtime; defaults to `localhost` when absent |
+| `SPRING_DATA_REDIS_PORT` | Redis port | Optional at runtime; defaults to `6379` when absent |
+| `ADMIN_EMAIL` | Initial administrator email | Listed in `.env.example`, but not currently consumed by `application.properties` |
+| `ADMIN_INITIAL_PASSWORD` | Initial administrator password | Listed in `.env.example`, but not currently consumed by `application.properties` |
 
 | Setting | Status |
 | --- | --- |
-| Backend and frontend ports | Frontend: `localhost:3000`; backend: planned local address `localhost:8080`, verify during implementation |
-| Supabase database connection | To be documented |
-| Supabase Storage configuration | To be documented |
-| Redis connection | To be documented |
-| Initial admin email/password | Supply securely outside source control; exact provisioning configuration to be documented |
+| Backend and frontend ports | Backend: `localhost:8080` verified; frontend: `localhost:3000` intended, frontend not yet available |
+| Supabase database connection | Supabase PostgreSQL connection supplied through `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` |
+| Supabase Storage configuration | No Supabase Storage-specific variable is currently defined in `.env.example`; document it when the integration configuration is implemented |
+| Redis connection | Supplied through `SPRING_DATA_REDIS_HOST` and `SPRING_DATA_REDIS_PORT`, with defaults `localhost` and `6379` |
+| Initial admin email/password | `ADMIN_EMAIL` and `ADMIN_INITIAL_PASSWORD` are listed in `.env.example` but are not currently consumed by `application.properties` |
 
 ## API outline
 
@@ -122,4 +165,5 @@ This repository is intended to contain both the Spring Boot backend and the Next
 - [ ] Protect upload and delete operations with authorization and CSRF defenses.
 - [ ] Integrate Supabase Storage and Supabase Database.
 - [ ] Add server-side upload validation and automated tests.
-- [ ] Document verified setup, configuration, run, and test commands.
+- [x] Document verified backend setup, configuration, run, test, and packaging commands.
+- [ ] Document frontend commands and remaining integration-specific configuration after implementation.
