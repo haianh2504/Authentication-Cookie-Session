@@ -17,7 +17,6 @@ The application is a Ronaldo photo gallery. Visitors can browse the gallery; a s
 - Uploaded images must use the approved formats `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`, with a maximum file size of 15 MB.
 - Server-side sessions last 10 minutes and use session rotation.
 - CSRF tokens are generated with `SecureRandom` and encoded using Base64 URL encoding.
-- Login requests are limited to 3 requests per second.
 - The public CSRF endpoint is `GET /api/v1/csrf-token`, with no request body, path variable, or query parameter.
 - The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie; it does not return the token in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for protected state-changing requests.
 - Gallery pagination uses an opaque `nextCursor`: the initial request omits it, subsequent requests send it, and every request returns up to 10 images.

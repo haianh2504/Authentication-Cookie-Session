@@ -1,4 +1,4 @@
-# API Contract — Authentication & Cookie Session
+sessions# API Contract — Authentication & Cookie Session
 
 This contract is based on `PRD.md`, `README.md`, `use_case.md`, and the current database model.
 
@@ -227,7 +227,6 @@ The server creates a Redis-backed session and sends the session cookie through `
 | --- | --- |
 | `400 Bad Request` | Required or malformed fields. |
 | `401 Unauthorized` | Credentials are invalid. The response must not reveal whether the email or password was wrong. |
-| `429 Too Many Requests` | The login rate limit of 3 requests per second was exceeded. |
 | `500 Internal Server Error` | Authentication service failure. |
 
 ## UC03: Check the current admin session
