@@ -148,8 +148,9 @@ Values containing shell-sensitive characters such as `&`, `$`, `!`, `#`, spaces,
 | `SPRING_DATASOURCE_PASSWORD` | PostgreSQL database password | Required and consumed by `spring.datasource.password` |
 | `SPRING_DATA_REDIS_HOST` | Redis host | Optional at runtime; defaults to `localhost` when absent |
 | `SPRING_DATA_REDIS_PORT` | Redis port | Optional at runtime; defaults to `6379` when absent |
-| `ADMIN_EMAIL` | Initial administrator email | Listed in `.env.example`, but not currently consumed by `application.properties` |
-| `ADMIN_INITIAL_PASSWORD` | Initial administrator password | Listed in `.env.example`, but not currently consumed by `application.properties` |
+| `ADMIN_EMAIL` | Initial administrator email | Consumed only when `ADMIN_SEED_ENABLED=true`; never logged |
+| `ADMIN_INITIAL_PASSWORD` | Initial administrator password | Consumed only when `ADMIN_SEED_ENABLED=true`; hashed with BCrypt and never stored as plaintext |
+| `ADMIN_SEED_ENABLED` | Enables idempotent initial-admin provisioning | Defaults to `false`; enable only for an intentional seed run |
 
 | Setting | Status |
 | --- | --- |
@@ -157,7 +158,21 @@ Values containing shell-sensitive characters such as `&`, `$`, `!`, `#`, spaces,
 | Supabase database connection | Supabase PostgreSQL connection supplied through `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` |
 | Supabase Storage configuration | No Supabase Storage-specific variable is currently defined in `.env.example`; document it when the integration configuration is implemented |
 | Redis connection | Supplied through `SPRING_DATA_REDIS_HOST` and `SPRING_DATA_REDIS_PORT`, with defaults `localhost` and `6379` |
-| Initial admin email/password | `ADMIN_EMAIL` and `ADMIN_INITIAL_PASSWORD` are listed in `.env.example` but are not currently consumed by `application.properties` |
+| Initial admin email/password | Set `ADMIN_SEED_ENABLED=true` together with both admin variables for initial provisioning; the seed does not overwrite an existing account |
+
+### Provision the initial admin
+
+The initial admin seed is disabled by default. To create the account once, set the following values in a local, untracked `.env` file:
+
+```dotenv
+ADMIN_SEED_ENABLED=true
+ADMIN_EMAIL=admin@example.com
+ADMIN_INITIAL_PASSWORD=use-a-strong-local-secret
+```
+
+Load the environment and start the application. The startup seed trims and normalizes the email, hashes the password with BCrypt, and inserts the account only when that email does not already exist. It never stores or logs the plaintext password and never overwrites an existing admin account.
+
+After the account is provisioned, set `ADMIN_SEED_ENABLED=false` and remove the initial password from the runtime environment. Password changes should be implemented as a separate authenticated flow rather than by re-running the initial seed.
 
 ## API outline
 
@@ -181,7 +196,7 @@ This repository is intended to contain both the Spring Boot backend and the Next
 - [x] Finalize the API contract and image data model, including the supporting `created_at` index.
 - [ ] Implement public image listing with initial and subsequent page sizes of 10, ordered by newest `created_at` first.
 - [ ] Implement admin authentication with Spring Security and Redis-backed sessions.
-- [ ] Provision the single admin account securely.
+- [x] Provision the single admin account securely with an opt-in, idempotent seed.
 - [ ] Protect upload and delete operations with authorization and CSRF defenses.
 - [ ] Integrate Supabase Storage and Supabase Database.
 - [ ] Add server-side upload validation and automated tests.

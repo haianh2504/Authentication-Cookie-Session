@@ -16,6 +16,20 @@ public class Admin {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    /**
+     * Tạo entity admin mới từ email và password hash đã được mã hóa.
+     *
+     * @param email email định danh duy nhất của admin
+     * @param passwordHash mật khẩu đã được hash, không phải plaintext
+     * @return entity admin sẵn sàng để persistence layer lưu xuống database
+     */
+    public static Admin create(String email, String passwordHash) {
+        Admin admin = new Admin();
+        admin.email = email;
+        admin.passwordHash = passwordHash;
+        return admin;
+    }
+
     public String getEmail() {
         return email;
     }
