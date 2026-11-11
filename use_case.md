@@ -38,7 +38,7 @@ This is a learning project. Supabase Storage is the official Phase 1 image-file 
 
 **Access:** Public.
 
-**Endpoint:** `POST /api/v1/csrf-token`
+**Endpoint:** `GET /api/v1/csrf-token`
 
 **Request:** No request body, path variable, or query parameter.
 

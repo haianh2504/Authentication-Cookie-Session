@@ -18,7 +18,7 @@ The application is a Ronaldo photo gallery. Visitors can browse the gallery; a s
 - Server-side sessions last 10 minutes and use session rotation.
 - CSRF tokens are generated with `SecureRandom` and encoded using Base64 URL encoding.
 - Login requests are limited to 3 requests per second.
-- The public CSRF endpoint is `POST /api/v1/csrf-token`, with no request body, path variable, or query parameter.
+- The public CSRF endpoint is `GET /api/v1/csrf-token`, with no request body, path variable, or query parameter.
 - The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie; it does not return the token in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for protected state-changing requests.
 - Gallery pagination uses an opaque `nextCursor`: the initial request omits it, subsequent requests send it, and every request returns up to 10 images.
 - API responses use a common `status`, `code`, `message`, `timestamp`, and endpoint-specific `data` envelope. Successful login and image upload return `201 Created`; successful logout and image deletion return `200 OK`.
@@ -77,7 +77,7 @@ The gallery list request omits `nextCursor` for the first page. Each subsequent 
 - Gallery reads are public; image management requires an authenticated administrator.
 - The Supabase Storage `gallery` bucket is public for image delivery; upload and delete operations remain protected by the backend.
 - Cookie-based authentication must use an explicitly configured CSRF defense for state-changing requests.
-- The frontend obtains a CSRF token from the public `POST /api/v1/csrf-token` endpoint, reads it from the `XSRF-TOKEN` cookie, and sends it in the `X-XSRF-TOKEN` header for protected state-changing requests.
+- The frontend obtains a CSRF token from the public `GET /api/v1/csrf-token` endpoint, reads it from the `XSRF-TOKEN` cookie, and sends it in the `X-XSRF-TOKEN` header for protected state-changing requests.
 - During local development, configure the session cookie as `HttpOnly; SameSite=Lax` with `Secure` disabled and `Domain` omitted (host-only). Configure the frontend-readable `XSRF-TOKEN` cookie with `Path=/; SameSite=Lax`, `Secure` disabled, and `Domain` omitted; it must not be `HttpOnly`. Enable `Secure` when deploying over HTTPS.
 - Validate uploaded image size and actual file content/type on the server. Accept only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB. Do not trust only the extension or browser-supplied MIME type.
 - Generate `imageId` before upload, store the file at `images/{imageId}` in the public Supabase Storage `gallery` bucket, and store the resulting `imageId`, `image_url`, and system-managed `created_at` in `public.images`.
@@ -165,7 +165,7 @@ These are confirmed operations, but most route names and implementation status r
 
 | Operation | Access | Successful status |
 | --- | --- | --- |
-| Get CSRF token: `POST /api/v1/csrf-token` | Public | `200 OK` |
+| Get CSRF token: `GET /api/v1/csrf-token` | Public | `200 OK` |
 | List gallery images with `nextCursor` pagination | Public | `200 OK` |
 | Admin login | Administrator credentials | `201 Created` |
 | Admin logout | Authenticated administrator | `200 OK` |

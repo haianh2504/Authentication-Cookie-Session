@@ -45,7 +45,7 @@ The application is a learning exercise. It is not represented as a validated pro
 
 ### Confirmed API conventions
 
-- The frontend obtains a CSRF token from `POST /api/v1/csrf-token`. The endpoint is public and has no request body, path variable, or query parameter.
+- The frontend obtains a CSRF token from `GET /api/v1/csrf-token`. The endpoint is public and has no request body, path variable, or query parameter.
 - The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie and does not return it in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for protected state-changing requests.
 - API responses use a common envelope containing `status`, `code`, `message`, `timestamp`, and endpoint-specific `data` fields.
 - Successful admin login and successful image upload return `201 Created`.
@@ -117,7 +117,7 @@ The application is a learning exercise. It is not represented as a validated pro
 - **FR-09 Image record:** The only business data for an image is `image_url`; `public.images` also stores `imageId` and system-managed `created_at`. No title, caption, description, or other user-provided metadata is collected.
 - **FR-10 Image deletion:** The administrator can delete an image by `imageId`; the backend removes the corresponding Storage object through the Storage API and the database record.
 - **FR-11 Logout:** The administrator can log out; the server-side session is invalidated.
-- **FR-12 CSRF:** The frontend obtains a CSRF token from the public `POST /api/v1/csrf-token` endpoint. The backend stores it in the `XSRF-TOKEN` cookie; the frontend echoes it in the `X-XSRF-TOKEN` header for state-changing cookie-authenticated operations. CSRF tokens are generated using `SecureRandom` and encoded using Base64 URL encoding.
+- **FR-12 CSRF:** The frontend obtains a CSRF token from the public `GET /api/v1/csrf-token` endpoint. The backend stores it in the `XSRF-TOKEN` cookie; the frontend echoes it in the `X-XSRF-TOKEN` header for state-changing cookie-authenticated operations. CSRF tokens are generated using `SecureRandom` and encoded using Base64 URL encoding.
 - **FR-13 Login rate limiting:** Login requests are limited to 3 requests per second.
 - **FR-14 Upload validation:** The backend accepts only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB, and validates their actual content/type on the server.
 - **FR-15 Response conventions:** API responses use the common `status`, `code`, `message`, `timestamp`, and `data` envelope. Successful login and image upload return `201 Created`; successful logout and image deletion return `200 OK`.
@@ -130,7 +130,7 @@ The application is a learning exercise. It is not represented as a validated pro
 - Use Redis as the server-side session store.
 - Set the server-side session lifetime to 10 minutes and apply session rotation.
 - During local development, configure the session cookie as `HttpOnly; SameSite=Lax` with `Secure` disabled and `Domain` omitted (host-only). Configure the frontend-readable `XSRF-TOKEN` cookie with `Path=/; SameSite=Lax`, `Secure` disabled, and `Domain` omitted; it must not be `HttpOnly`. Enable `Secure` when deploying over HTTPS.
-- Expose `POST /api/v1/csrf-token` as the public CSRF-token endpoint with no request body, path variable, or query parameter. Store the generated token in the `XSRF-TOKEN` cookie rather than in `data.token`.
+- Expose `GET /api/v1/csrf-token` as the public CSRF-token endpoint with no request body, path variable, or query parameter. Store the generated token in the `XSRF-TOKEN` cookie rather than in `data.token`.
 - Generate CSRF tokens using `SecureRandom` and encode them using Base64 URL encoding.
 - Limit login requests to 3 requests per second.
 - Validate uploaded files against the `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` allowlist, enforce the 15 MB maximum size, and inspect actual file content/type on the server. Do not rely only on filename extension or browser-provided MIME type.

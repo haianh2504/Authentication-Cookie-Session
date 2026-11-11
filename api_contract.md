@@ -63,7 +63,7 @@ The API must not expose passwords, raw session identifiers, storage credentials,
 
 - Public operations do not require an authenticated session.
 - Protected operations use the session cookie created during admin login.
-- The CSRF token is obtained from `POST /api/v1/csrf-token` and stored in the `XSRF-TOKEN` cookie.
+- The CSRF token is obtained from `GET /api/v1/csrf-token` and stored in the `XSRF-TOKEN` cookie.
 - State-changing cookie-authenticated requests copy the `XSRF-TOKEN` cookie value into the `X-XSRF-TOKEN` header.
 - The token is generated with `SecureRandom` and encoded with Base64 URL encoding.
 - The CSRF token is not returned in `data.token`.
@@ -89,7 +89,7 @@ The API must not expose passwords, raw session identifiers, storage credentials,
 | Item | Value |
 | --- | --- |
 | Access | Public |
-| Method | `POST` |
+| Method | `GET` |
 | Endpoint | `/api/v1/csrf-token` |
 | Request body | None |
 | Path variables | None |
@@ -368,7 +368,7 @@ The backend finds the `public.images` row, derives the fixed Storage object path
 | --- | --- |
 | Access | Authenticated admin session |
 | Method | `DELETE` |
-| Endpoint | `/api/v1/auth/admin/session` |
+| Endpoint | `/api/v1/auth/admin/sessions` |
 | Request body | None |
 | Required headers | Browser session cookie, `X-XSRF-TOKEN`, `Accept: application/json` |
 
@@ -402,7 +402,7 @@ The backend invalidates the Redis-backed session and clears or expires the sessi
 The following decisions make the current skeleton internally consistent:
 
 - Session checking uses `GET /api/v1/auth/admin/sessions`.
-- Logout uses `DELETE /api/v1/auth/admin/session` to delete the current authenticated session.
+- Logout uses `DELETE /api/v1/auth/admin/sessions` to delete the current authenticated session.
 - Image deletion uses `DELETE /api/v1/images/{imageId}`.
 - The upload multipart field is named `file`.
 - The CSRF endpoint stores the token in the `XSRF-TOKEN` cookie and does not return `data.token`.
