@@ -4,9 +4,11 @@ A hands-on learning project for practicing Spring Security authentication, serve
 
 The application is a Ronaldo photo gallery. Visitors can browse the gallery; a single administrator can sign in, upload images, and delete images.
 
-> **Project status:** Confirmed Phase 1 requirements are documented here. API-contract details and some integrations remain to be finalized, while the backend toolchain, tests, packaging, and executable JAR workflow below have been verified. Do not treat documented requirements as proof that every feature is implemented.
+> **Implementation status (2026-11-12):** The backend currently implements CSRF-token delivery, admin login/current-session lookup, opt-in admin provisioning, protected image upload, image validation, and image deletion. Public paginated listing, logout, and the frontend are not implemented in this checkout. Source presence is not the same as live proof against PostgreSQL, Redis, or Supabase.
 
 ## Phase 1 scope
+
+The bullets below describe the Phase 1 target. See [Implementation status](#implementation-status) and [Roadmap](#roadmap) for the current source-code status.
 
 - Visitors can browse the public image gallery.
 - The gallery loads the first 10 images and fetches additional images in pages of 10 as the visitor scrolls (infinite scrolling).
@@ -33,11 +35,27 @@ See [PRD.md](PRD.md) for product requirements, flows, security expectations, and
 - Apply CSRF protection and safe image upload validation.
 - Use AI as a learning and development assistant while reviewing and understanding generated code.
 
+## Implementation status
+
+Status below is based on the source tree and tests present on 2026-11-12. It does not claim a successful live request against external PostgreSQL, Redis, or Supabase services.
+
+| Area | Status | Current source evidence |
+| --- | --- | --- |
+| CSRF endpoint and cookie flow | Implemented | `CsrfController` and `SecurityConfig` expose `GET /api/v1/csrf-token`, issue `XSRF-TOKEN`, and protect state-changing requests. |
+| Admin login and current-session lookup | Implemented | `AdminController`, `AdminSessionService`, `AdminUserDetailsService`, and `SecurityConfig` authenticate the admin, rotate the session ID, and use Redis-backed Spring Session. |
+| Admin logout | Not implemented | No logout handler/endpoint is present; Spring Security logout is disabled in `SecurityConfig`. |
+| Opt-in admin provisioning | Implemented | `AdminSeedRunner` and `AdminSeedService` create an account once and store only a BCrypt hash. |
+| Image upload | Implemented | `ImageController`, `ImageUploadServiceImpl`, `SupabaseImageStorage`, and `ImageRepository` coordinate Storage-first upload and database persistence. |
+| Image upload validation | Implemented | `ImageFileValidator` checks the allowlist, MIME type, magic bytes, and the 15 MB limit. |
+| Image deletion | Implemented with a recovery gap | `ImageDeletionServiceImpl` deletes Storage before PostgreSQL and handles failures; a database failure after remote deletion still requires reconciliation. |
+| Public image listing | Not implemented | The repository has an unpaginated ordering query, but no listing controller/service or opaque `nextCursor` flow exists. |
+| Frontend | Not implemented | No Next.js/TypeScript application files or frontend scripts are present in this checkout. |
+
 ## Confirmed technology stack
 
 | Area | Technology |
 | --- | --- |
-| Frontend | Next.js, TypeScript |
+| Frontend | Next.js, TypeScript (planned; no frontend source in this checkout) |
 | Backend | Java, Spring Boot, Spring Web MVC, Spring Security, Spring Data JPA, Bean Validation |
 | Database | Supabase Database (PostgreSQL) |
 | Image storage | Supabase Storage |
@@ -48,7 +66,7 @@ The verified backend toolchain uses Java `21.0.12`, Maven Wrapper `3.10.0`, and 
 
 ## Architecture overview
 
-The frontend runs separately from the backend in the same Git repository. The browser communicates with the Spring Boot REST API. The backend authenticates the administrator, stores session state in Redis, reads and writes gallery records in `public.images`, and uploads/removes actual image files in the Supabase Storage `gallery` bucket.
+The intended frontend runs separately from the backend. In the current checkout, only the Spring Boot backend is present. The backend authenticates the administrator, stores session state in Redis, reads and writes gallery records in `public.images`, and uploads/removes actual image files in the Supabase Storage `gallery` bucket.
 
 ```mermaid
 flowchart LR
@@ -82,18 +100,16 @@ The gallery list request omits `nextCursor` for the first page. Each subsequent 
 - Generate `imageId` before upload, store the file at `images/{imageId}` in the public Supabase Storage `gallery` bucket, and store the resulting `imageId`, `image_url`, and system-managed `created_at` in `public.images`.
 - Use `imageId`, not `imageURL`, when requesting image deletion. Delete the Storage object through the Supabase Storage API and remove the corresponding `public.images` record.
 - The initial admin account should be provisioned through a seed or migration. Store only a password hash in the database, and supply the initial password through secret configuration rather than committing it to source control.
-- Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Limit login requests to 3 requests per second.
+- Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Login rate limiting is deferred and is not present in the current source.
 - These are project requirements and learning goals, not a claim that the application is production-ready.
 
 ### Generated security password
 
-When the Spring Security starter is on the classpath and a custom security configuration has not yet replaced Spring Boot's default security configuration, Spring Boot creates a default development user and generates a random password at startup. The password is printed in the application log with a message such as `Using generated security password`.
-
-This generated password is only for the temporary default development authentication. It is not the `ADMIN_INITIAL_PASSWORD`, the PostgreSQL password, or a Supabase credential. It changes between application starts, must not be committed or used as a production credential, and should disappear once the project's custom administrator authentication is implemented.
+The current source has a custom `SecurityConfig`, `AdminUserDetailsService`, and `PasswordEncoderConfig`; the application is intended to authenticate the provisioned admin rather than use Spring Boot's generated default user. If a generated-password message appears, inspect the active configuration and startup profile before treating it as a valid project login flow.
 
 ## Local development
 
-This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend. The verified backend runs on port `8080`; the frontend is intended to run at `localhost:3000`, but frontend commands are not documented until its package and scripts are available.
+This checkout contains the Spring Boot backend only. It runs on port `8080`; frontend commands and `localhost:3000` integration are still planned because no frontend package or scripts are present.
 
 ### Prerequisites
 
@@ -124,7 +140,7 @@ set +a
 java -jar target/Authentication_CookieSession-0.0.1-SNAPSHOT.jar
 ```
 
-`./mvnw clean test` completed with 1 test, 0 failures, and 0 errors. `./mvnw clean package` created the executable JAR at `target/Authentication_CookieSession-0.0.1-SNAPSHOT.jar`. Stop the running application with `Ctrl+C`.
+When the commands complete successfully, `./mvnw clean test` runs the unit/integration suite and `./mvnw clean package` creates the executable JAR at `target/Authentication_CookieSession-0.0.1-SNAPSHOT.jar`. Testcontainers requires Docker; external database, Redis, and Supabase behavior still needs a live environment check.
 
 ## Configuration
 
@@ -178,30 +194,33 @@ After the account is provisioned, set `ADMIN_SEED_ENABLED=false` and remove the 
 
 ## API outline
 
-These are confirmed operations. UC04 now has the controller, DTOs, service orchestration, PostgreSQL repository insert, Supabase Storage adapter, server-side validation, and focused tests described below. The remaining unchecked operations are outside this implementation scope.
+The table separates operations implemented in the current backend from requirements that remain planned.
 
-| Operation | Access | Successful status |
-| --- | --- | --- |
-| Get CSRF token: `GET /api/v1/csrf-token` | Public | `200 OK` |
-| List gallery images with `nextCursor` pagination | Public | `200 OK` |
-| Admin login | Administrator credentials | `201 Created` |
-| Admin logout | Authenticated administrator | `200 OK` |
-| Upload an image | Authenticated administrator | `201 Created` |
-| Delete an image using `imageId` | Authenticated administrator | `200 OK` |
+| Operation | Access | Successful status | Current status |
+| --- | --- | --- | --- |
+| Get CSRF token: `GET /api/v1/csrf-token` | Public | `200 OK` | Implemented |
+| List gallery images with `nextCursor` pagination | Public | `200 OK` | Not implemented |
+| Admin login: `POST /api/v1/auth/admin` | Administrator credentials | `201 Created` | Implemented |
+| Current session: `GET /api/v1/auth/admin/sessions` | Authenticated administrator | `200 OK` | Implemented |
+| Admin logout | Authenticated administrator | `200 OK` | Not implemented |
+| Upload an image: `POST /api/v1/images` | Authenticated administrator + CSRF | `201 Created` | Implemented |
+| Delete an image: `DELETE /api/v1/images/{imageId}` | Authenticated administrator + CSRF | `200 OK` | Implemented with reconciliation gap |
 
 ## Current repository
 
-This repository is intended to contain both the Spring Boot backend and the Next.js/TypeScript frontend in the same Git repository. Document the frontend directory and verified commands when the frontend structure is finalized.
+The current repository contains the Spring Boot backend. A frontend directory, package manifest, and frontend run commands have not been added yet.
 
 ## Roadmap
 
 - [x] Finalize the API contract and image data model, including the supporting `created_at` index.
 - [ ] Implement public image listing with initial and subsequent page sizes of 10, ordered by newest `created_at` first.
-- [ ] Implement admin authentication with Spring Security and Redis-backed sessions.
+- [x] Implement admin authentication and current-session lookup with Spring Security and Redis-backed sessions.
+- [ ] Implement admin logout and server-side session invalidation endpoint.
 - [x] Provision the single admin account securely with an opt-in, idempotent seed.
 - [x] Protect image upload with authorization and CSRF defenses.
-- [ ] Implement image deletion with authorization, CSRF defenses, and consistency handling.
+- [x] Implement image deletion with authorization, CSRF defenses, and Storage-first/database-second handling; reconciliation after a database failure remains open.
 - [x] Implement UC04 upload persistence across Supabase Storage and Supabase Database.
 - [x] Add server-side upload validation and focused automated tests.
 - [x] Document verified backend setup, configuration, run, test, and packaging commands.
-- [ ] Document frontend commands and remaining integration-specific configuration after implementation.
+- [ ] Add the frontend and document its commands and integration-specific configuration.
+- [ ] Reverify the implemented flows against live PostgreSQL, Redis, and Supabase services.
