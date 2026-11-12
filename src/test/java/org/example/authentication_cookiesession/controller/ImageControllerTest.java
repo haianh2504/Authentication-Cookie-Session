@@ -1,7 +1,9 @@
 package org.example.authentication_cookiesession.controller;
 
 import org.example.authentication_cookiesession.dto.response.ImageUploadResponse;
+import org.example.authentication_cookiesession.dto.response.ImageDeleteResponse;
 import org.example.authentication_cookiesession.exception.ApiExceptionHandler;
+import org.example.authentication_cookiesession.service.ImageDeletionService;
 import org.example.authentication_cookiesession.service.ImageUploadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,15 +11,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,12 +36,15 @@ class ImageControllerTest {
     @Mock
     private ImageUploadService imageUploadService;
 
+    @Mock
+    private ImageDeletionService imageDeletionService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ImageController(imageUploadService))
+                .standaloneSetup(new ImageController(imageUploadService, imageDeletionService))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }
@@ -61,6 +72,42 @@ class ImageControllerTest {
                 .andExpect(jsonPath("$.data.imageURL").isNotEmpty());
 
         verify(imageUploadService).upload(any());
+    }
+
+    @Test
+    void deletesImageAndReturnsContractEnvelopeForAuthenticatedSession() throws Exception {
+        UUID imageId = UUID.randomUUID();
+        when(imageDeletionService.delete(imageId))
+                .thenReturn(new ImageDeleteResponse(true, imageId));
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                "admin@example.com",
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+
+        mockMvc.perform(delete("/api/v1/images/{imageId}", imageId)
+                        .principal(authentication)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("IMAGE_DELETING_SUCCESSFULLY"))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.imageId").value(imageId.toString()));
+
+        verify(imageDeletionService).delete(imageId);
+    }
+
+    @Test
+    void rejectsDeleteWhenSessionAuthenticationIsMissing() throws Exception {
+        UUID imageId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/images/{imageId}", imageId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.code").value("ADMIN_SESSION_UNAUTHORIZED"));
+
+        verifyNoInteractions(imageDeletionService);
     }
 
     @Test

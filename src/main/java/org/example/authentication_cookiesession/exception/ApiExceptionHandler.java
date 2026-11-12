@@ -48,6 +48,25 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Trả lỗi an toàn cho use case xóa ảnh.
+     */
+    @ExceptionHandler(ImageDeletionException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleImageDeletionException(
+            ImageDeletionException exception) {
+        if (exception.getStatus().is5xxServerError()) {
+            log.error("Image deletion failed with code={}", exception.getCode(), exception);
+        }
+
+        ApiResponse<Map<String, Object>> body = ApiResponse.of(
+                exception.getStatus().value(),
+                exception.getCode(),
+                exception.getClientMessage(),
+                Map.of());
+
+        return ResponseEntity.status(exception.getStatus()).body(body);
+    }
+
+    /**
      * Bắt lỗi kích thước multipart do container từ chối trước khi vào controller.
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)

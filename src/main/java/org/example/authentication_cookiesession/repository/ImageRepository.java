@@ -28,6 +28,15 @@ public interface ImageRepository extends JpaRepository<Image, UUID> {
             @Param("imageId") UUID imageId,
             @Param("imageUrl") String imageUrl);
 
+    /**
+     * Xóa cứng image record theo đúng UUID của ảnh.
+     * @param imageId UUID của image record
+     * @return số record đã bị xóa
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("delete from Image image where image.id = :imageId")
+    int deleteImageById(@Param("imageId") UUID imageId);
+
     @Query("select image.imageUrl from Image image order by image.createdAt desc, image.id desc")
     List<String> findImageUrlsOrderByCreatedAtDesc();
 }
