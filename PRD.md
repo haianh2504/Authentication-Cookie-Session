@@ -137,7 +137,7 @@ The application is a learning exercise. It is not represented as a validated pro
 - Supabase Storage stores the actual image files in the public `gallery` bucket at `images/{imageId}`; PostgreSQL stores application gallery records in `public.images`, including `imageId`, `image_url`, and system-managed `created_at`.
 - Gallery queries order records with `ORDER BY created_at DESC, id DESC` and use the supporting index `CREATE INDEX idx_images_created_at ON public.images (created_at DESC);`.
 - The image binary is not stored in PostgreSQL. Storage objects are managed through the Supabase Storage API, not by deleting rows directly from `storage.objects` with SQL.
-- Credential storage, production-specific cookie deployment values, and deletion consistency behavior remain to be specified during implementation.
+- Credential storage, production-specific cookie deployment values, and deletion consistency behavior remain to be specified during implementation. UC04 upload compensation is defined as Storage-first, database-second, with Storage API cleanup after a failed database insert.
 
 ## 8. Acceptance criteria
 
@@ -171,5 +171,5 @@ Exact versions, remaining API paths/contracts, deployment environments, and serv
 - Exact initial admin provisioning mechanism and secret variable names.
 - Production-specific session-cookie and CSRF-cookie deployment values, including whether a cross-subdomain `Domain` is needed and when `Secure` must be enabled.
 - The exact opaque cursor encoding and endpoint-specific response schemas. The common response envelope, `nextCursor` pagination metadata, CSRF cookie delivery, public `gallery` bucket, and `images/{imageId}` Storage path are confirmed; the required page size is up to 10 images for the initial and subsequent requests.
-- Behavior and recovery strategy if Storage upload/deletion succeeds but the database operation fails, or vice versa.
+- Behavior and recovery strategy for deletion remains open. UC04 upload recovery is defined: upload Storage first, insert PostgreSQL second, then delete the Storage object through the Storage API if the database insert fails; cleanup failure requires reconciliation.
 - Deployment and local development setup, including whether Supabase runs hosted or locally.

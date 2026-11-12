@@ -150,12 +150,15 @@ Values containing shell-sensitive characters such as `&`, `$`, `!`, `#`, spaces,
 | `ADMIN_EMAIL` | Initial administrator email | Consumed only when `ADMIN_SEED_ENABLED=true`; never logged |
 | `ADMIN_INITIAL_PASSWORD` | Initial administrator password | Consumed only when `ADMIN_SEED_ENABLED=true`; hashed with BCrypt and never stored as plaintext |
 | `ADMIN_SEED_ENABLED` | Enables idempotent initial-admin provisioning | Defaults to `false`; enable only for an intentional seed run |
+| `SUPABASE_URL` | Supabase project base URL used by Storage REST API | Required when upload is used; never log service credentials |
+| `SUPABASE_SECRET_KEY` | Backend credential for Storage upload and cleanup | Required when upload is used; keep only in local/deployment secret configuration |
+| `SUPABASE_STORAGE_BUCKET` | Public Storage bucket name | Optional; defaults to `gallery` |
 
 | Setting | Status |
 | --- | --- |
 | Backend and frontend ports | Backend: `localhost:8080` verified; frontend: `localhost:3000` intended, frontend not yet available |
 | Supabase database connection | Supabase PostgreSQL connection supplied through `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` |
-| Supabase Storage configuration | No Supabase Storage-specific variable is currently defined in `.env.example`; document it when the integration configuration is implemented |
+| Supabase Storage configuration | Supplied through `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and optional `SUPABASE_STORAGE_BUCKET`; the default bucket is `gallery` |
 | Redis connection | Supplied through `SPRING_DATA_REDIS_HOST` and `SPRING_DATA_REDIS_PORT`, with defaults `localhost` and `6379` |
 | Initial admin email/password | Set `ADMIN_SEED_ENABLED=true` together with both admin variables for initial provisioning; the seed does not overwrite an existing account |
 
@@ -175,7 +178,7 @@ After the account is provisioned, set `ADMIN_SEED_ENABLED=false` and remove the 
 
 ## API outline
 
-These are confirmed operations, but most route names and implementation status remain to be finalized. The CSRF endpoint, cursor pagination behavior, common response envelope, and successful-operation status codes are confirmed above; remaining endpoint-specific request/response schemas and errors should be defined in the API contract.
+These are confirmed operations. UC04 now has the controller, DTOs, service orchestration, PostgreSQL repository insert, Supabase Storage adapter, server-side validation, and focused tests described below. The remaining unchecked operations are outside this implementation scope.
 
 | Operation | Access | Successful status |
 | --- | --- | --- |
@@ -196,8 +199,9 @@ This repository is intended to contain both the Spring Boot backend and the Next
 - [ ] Implement public image listing with initial and subsequent page sizes of 10, ordered by newest `created_at` first.
 - [ ] Implement admin authentication with Spring Security and Redis-backed sessions.
 - [x] Provision the single admin account securely with an opt-in, idempotent seed.
-- [ ] Protect upload and delete operations with authorization and CSRF defenses.
-- [ ] Integrate Supabase Storage and Supabase Database.
-- [ ] Add server-side upload validation and automated tests.
+- [x] Protect image upload with authorization and CSRF defenses.
+- [ ] Implement image deletion with authorization, CSRF defenses, and consistency handling.
+- [x] Implement UC04 upload persistence across Supabase Storage and Supabase Database.
+- [x] Add server-side upload validation and focused automated tests.
 - [x] Document verified backend setup, configuration, run, test, and packaging commands.
 - [ ] Document frontend commands and remaining integration-specific configuration after implementation.

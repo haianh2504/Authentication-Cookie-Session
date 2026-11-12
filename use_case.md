@@ -116,26 +116,43 @@ The token is generated with `SecureRandom` and encoded using Base64 URL encoding
 
 **Goal:** Let an authenticated admin add an image selected from their device to the gallery.
 
-**Preconditions:** Admin has a valid authenticated session. The selected file is no larger than 15 MB and uses one of the allowed formats: `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`.
+**Preconditions:** Admin has a valid authenticated session. The frontend has obtained a CSRF token and can send the selected file as the `file` part of a `multipart/form-data` request. The file must be no larger than 15 MB and use one of the allowed formats: `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, or `.AVIF`.
 
 **Main flow:**
 
-1. Admin selects an image file in the frontend.
-2. Frontend sends a `multipart/form-data` request containing the file. The browser attaches the session cookie; the request also satisfies the configured CSRF protection.
-3. Backend confirms the requester is authenticated and authorized as an admin.
-4. Backend validates the upload, including size and allowed image content/type. Client-provided filename and MIME type alone are not trusted.
-5. Backend generates the `imageId` and fixed Storage object path `images/{imageId}`, then uploads the file to the public `gallery` bucket in Supabase Storage.
-6. Backend obtains the resulting image URL and inserts the `imageId`, `image_url`, and system-generated `created_at` into `public.images`.
-7. Backend returns a `201 Created` response using the common response envelope and containing the new image URL.
-8. Frontend refreshes or updates the gallery, which displays the newest images first.
+1. Admin selects an image file in the frontend. The frontend shows a temporary local preview; this preview is not persisted by the backend.
+2. Frontend sends `POST /api/v1/images` as `multipart/form-data` with the required `file` part. The browser attaches the `ADMIN_SESSION` cookie and sends the `X-XSRF-TOKEN` header.
+3. Spring Security checks the CSRF token, resolves the session from Redis, and confirms that the requester has the `ADMIN` role. A failed check stops the flow before any external write.
+4. Backend validates the upload before contacting Supabase Storage: the file exists and is non-empty, its size is at most 15 MB, its extension is allowlisted, its client MIME type is acceptable, and its actual bytes match an allowed image type. Filename, extension, MIME type, and path are treated as untrusted input.
+5. Backend generates a UUID `imageId` and derives the only permitted Storage path: `images/{imageId}`. The path is never taken from the client filename.
+6. Backend uploads the original image bytes to the public `gallery` bucket in Supabase Storage through the Storage API. The binary is not written to PostgreSQL.
+7. After Storage confirms success, backend builds the public URL for `gallery/images/{imageId}` and inserts one row into `public.images` with the same `imageId`, `image_url`, and database-generated `created_at`.
+8. After both writes succeed, backend returns `201 Created` using the common response envelope with `imageId` and `imageURL`.
+9. Frontend refreshes or prepends the new item in the gallery, which displays it before older images.
+
+### Persistence and consistency strategy
+
+Supabase Storage and PostgreSQL are separate systems, so one database transaction cannot atomically commit both writes. The operation therefore uses **Storage first, database second**, followed by compensating cleanup:
+
+1. Validate completely before either external write.
+2. Upload to Storage at the generated fixed path.
+3. Insert the database row only after Storage succeeds.
+4. If the database insert succeeds, the use case is successful even though the Storage operation is outside the PostgreSQL transaction.
+5. If the database insert fails after the Storage upload, call the Supabase Storage delete API for the exact `images/{imageId}` path. Do not delete from `storage.objects` using SQL.
+6. If that cleanup also fails, return a generic `500 Internal Server Error`, log a safe reconciliation record containing the `imageId` and Storage path, and mark the orphan for an operational cleanup job or manual recovery. Never expose Storage credentials or internal exception details to the client.
+
+The reverse order—writing PostgreSQL first and uploading Storage second—is not used because it would leave a database row pointing to a file that does not exist when the upload fails. The backend must also avoid retrying an unknown request blindly after a timeout, because a previous Storage upload may already have succeeded; idempotency or reconciliation for that client-retry case is a later enhancement.
 
 **Alternative flows:**
 
 - **Unauthenticated requester:** Return `401 Unauthorized`.
 - **Authenticated requester without admin authority:** Return `403 Forbidden`.
 - **Missing, empty, unsupported, or invalid image:** Return a suitable client error such as `400 Bad Request` or `415 Unsupported Media Type`.
-- **File exceeds 15 MB or uses an unsupported format:** Return an appropriate client error. The exact response schema remains deferred to API-contract design.
-- **Storage or database failure:** Return a generic server error, log diagnostic details safely, and avoid leaving an inconsistent Storage object or URL record. Define cleanup or transaction-compensation behavior.
+- **File exceeds 15 MB:** Return `413 Payload Too Large`.
+- **File uses an unsupported extension, client MIME type, or actual content/type:** Return `415 Unsupported Media Type`.
+- **Storage upload failure:** Return a generic `500 Internal Server Error`; do not insert a row into `public.images`.
+- **Database insert failure after Storage success:** Attempt compensating deletion through the Storage API. Return a generic `500 Internal Server Error` whether cleanup succeeds or fails; if cleanup fails, record the orphan for reconciliation.
+- **Request timeout after an uncertain Storage result:** Do not assume the upload failed. Use the generated path and server-side diagnostics to reconcile before allowing a retry policy to create another object.
 
 **Postconditions:** On success, the image file is stored in Supabase Storage, its image URL is persisted in Supabase Database, and it is available to UC01.
 
@@ -187,11 +204,11 @@ The token is generated with `SecureRandom` and encoded using Base64 URL encoding
 
 ## 5. Open design decisions
 
-- Exact REST endpoint paths for operations other than the confirmed CSRF endpoint, and endpoint-specific request/response schemas.
+- Exact REST endpoint paths for operations other than the confirmed CSRF endpoint and the confirmed upload endpoint `POST /api/v1/images`.
 - Whether UC03 uses a dedicated session-status endpoint or relies on normal protected requests.
 - Production-specific cookie deployment values, such as when to enable `Secure` and whether a cross-subdomain `Domain` is required.
 - Gallery pagination uses an opaque `nextCursor`: the initial request omits it, and each subsequent request sends the cursor returned by the previous response. The initial and subsequent requests return up to 10 images, ordered by newest `created_at` first. The response includes `limit`, `nextCursor`, and `hasNextPage` pagination metadata.
-- Storage/database consistency and cleanup strategy for failed uploads and deletions.
+- Storage/database consistency and cleanup strategy for failed deletions; UC04 upload compensation is defined above as Storage delete after a failed database insert.
 - Other API-contract details and production-specific session-cookie deployment values.
 
 ## 6. Additional Phase 1 requirements
