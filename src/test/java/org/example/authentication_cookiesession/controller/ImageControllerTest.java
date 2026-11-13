@@ -2,8 +2,12 @@ package org.example.authentication_cookiesession.controller;
 
 import org.example.authentication_cookiesession.dto.response.ImageUploadResponse;
 import org.example.authentication_cookiesession.dto.response.ImageDeleteResponse;
+import org.example.authentication_cookiesession.dto.response.ImageItemResponse;
+import org.example.authentication_cookiesession.dto.response.ImageListResponse;
+import org.example.authentication_cookiesession.dto.response.PaginationResponse;
 import org.example.authentication_cookiesession.exception.ApiExceptionHandler;
 import org.example.authentication_cookiesession.service.ImageDeletionService;
+import org.example.authentication_cookiesession.service.ImageListingService;
 import org.example.authentication_cookiesession.service.ImageUploadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,9 +30,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
 
 @ExtendWith(MockitoExtension.class)
 class ImageControllerTest {
@@ -39,14 +45,70 @@ class ImageControllerTest {
     @Mock
     private ImageDeletionService imageDeletionService;
 
+    @Mock
+    private ImageListingService imageListingService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ImageController(imageUploadService, imageDeletionService))
+                .standaloneSetup(new ImageController(
+                        imageUploadService,
+                        imageDeletionService,
+                        imageListingService))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
+    }
+
+    /**
+     * Verifies that the first public gallery request omits the cursor and returns
+     * the contract response envelope with pagination metadata.
+     */
+    @Test
+    void listsFirstGalleryPageUsingContractEnvelope() throws Exception {
+        UUID imageId = UUID.randomUUID();
+        ImageListResponse response = new ImageListResponse(
+                List.of(new ImageItemResponse(
+                        imageId,
+                        "https://example.supabase.co/storage/v1/object/public/gallery/images/" + imageId)),
+                new PaginationResponse(10, "next-cursor", true));
+        when(imageListingService.listImages(null)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/images")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("IMAGES_RETRIEVING_SUCCESSFULLY"))
+                .andExpect(jsonPath("$.message").value("Retrieving image gallery successfully"))
+                .andExpect(jsonPath("$.data.items[0].imageId").value(imageId.toString()))
+                .andExpect(jsonPath("$.data.pagination.limit").value(10))
+                .andExpect(jsonPath("$.data.pagination.nextCursor").value("next-cursor"))
+                .andExpect(jsonPath("$.data.pagination.hasNextPage").value(true));
+
+        verify(imageListingService).listImages(null);
+    }
+
+    /**
+     * Verifies that a subsequent gallery request forwards its opaque cursor unchanged.
+     */
+    @Test
+    void listsSubsequentGalleryPageWithOpaqueCursor() throws Exception {
+        String cursor = "opaque-cursor";
+        ImageListResponse response = new ImageListResponse(
+                List.of(),
+                new PaginationResponse(10, null, false));
+        when(imageListingService.listImages(cursor)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/images")
+                        .param("nextCursor", cursor)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.pagination.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.data.pagination.hasNextPage").value(false));
+
+        verify(imageListingService).listImages(cursor);
     }
 
     @Test

@@ -5,9 +5,11 @@ import lombok.RequiredArgsConstructor;
 import org.example.authentication_cookiesession.dto.request.UploadImageRequest;
 import org.example.authentication_cookiesession.dto.response.ImageDeleteResponse;
 import org.example.authentication_cookiesession.dto.response.ApiResponse;
+import org.example.authentication_cookiesession.dto.response.ImageListResponse;
 import org.example.authentication_cookiesession.dto.response.ImageUploadResponse;
 import org.example.authentication_cookiesession.exception.ImageDeletionException;
 import org.example.authentication_cookiesession.service.ImageDeletionService;
+import org.example.authentication_cookiesession.service.ImageListingService;
 import org.example.authentication_cookiesession.service.ImageUploadService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -16,8 +18,10 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,6 +40,26 @@ public class ImageController {
 
     private final ImageUploadService imageUploadService;
     private final ImageDeletionService imageDeletionService;
+    private final ImageListingService imageListingService;
+
+    /**
+     * Lấy danh sách gallery công khai theo cursor opaque.
+     *
+     * @param nextCursor cursor của trang trước; bỏ qua ở request đầu tiên
+     * @return response 200 chứa items và pagination metadata
+     */
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<ImageListResponse>> listImages(
+            @RequestParam(required = false) String nextCursor) {
+        ImageListResponse data = imageListingService.listImages(nextCursor);
+        ApiResponse<ImageListResponse> body = ApiResponse.of(
+                HttpStatus.OK.value(),
+                "IMAGES_RETRIEVING_SUCCESSFULLY",
+                "Retrieving image gallery successfully",
+                data);
+
+        return ResponseEntity.ok(body);
+    }
 
     /**
      * Upload file ảnh bằng multipart field {@code file}.

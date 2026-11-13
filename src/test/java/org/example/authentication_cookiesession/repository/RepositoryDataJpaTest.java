@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import jakarta.persistence.EntityManager;
@@ -115,6 +116,57 @@ class RepositoryDataJpaTest {
                         imageUrl(tiedLowerId),
                         imageUrl(oldestId)),
                 imageUrls);
+    }
+
+    /**
+     * Verifies that the first listing query returns only the requested fetch window
+     * in newest-first order.
+     */
+    @Test
+    void findFirstPageReturnsRequestedWindowInNewestFirstOrder() {
+        OffsetDateTime baseTime = OffsetDateTime.parse("2026-01-01T10:00:00Z");
+        for (int index = 0; index < 12; index++) {
+            UUID imageId = UUID.fromString(String.format(
+                    "00000000-0000-0000-0000-%012d", index + 1));
+            insertImageWithCreatedAt(imageId, baseTime.plusMinutes(index));
+        }
+
+        List<Image> firstPage = imageRepository.findFirstPage(PageRequest.of(0, 11));
+
+        assertEquals(11, firstPage.size());
+        assertEquals(
+                UUID.fromString("00000000-0000-0000-0000-000000000012"),
+                firstPage.get(0).getId());
+        assertEquals(
+                UUID.fromString("00000000-0000-0000-0000-000000000002"),
+                firstPage.get(10).getId());
+    }
+
+    /**
+     * Verifies that the cursor boundary excludes the last item of the previous page
+     * and applies the UUID tie-breaker for equal timestamps.
+     */
+    @Test
+    void findPageAfterCursorUsesCreatedAtAndIdBoundary() {
+        OffsetDateTime baseTime = OffsetDateTime.parse("2026-01-01T10:00:00Z");
+        UUID oldestId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID tiedLowerId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID tiedHigherId = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID newestId = UUID.fromString("00000000-0000-0000-0000-000000000004");
+
+        insertImageWithCreatedAt(oldestId, baseTime.minusDays(1));
+        insertImageWithCreatedAt(tiedLowerId, baseTime);
+        insertImageWithCreatedAt(tiedHigherId, baseTime);
+        insertImageWithCreatedAt(newestId, baseTime.plusDays(1));
+
+        List<Image> nextPage = imageRepository.findPageAfterCursor(
+                baseTime,
+                tiedHigherId,
+                PageRequest.of(0, 11));
+
+        assertEquals(
+                List.of(tiedLowerId, oldestId),
+                nextPage.stream().map(Image::getId).toList());
     }
 
     /**
