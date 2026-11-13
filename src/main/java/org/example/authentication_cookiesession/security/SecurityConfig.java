@@ -1,5 +1,6 @@
 package org.example.authentication_cookiesession.security;
 
+import org.example.authentication_cookiesession.config.CsrfSecurityProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,11 +11,11 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.DefaultCookieSerializer;
 
@@ -48,6 +49,12 @@ public class SecurityConfig {
         return serializer;
     }
 
+    /** Đăng ký repository CSRF custom vào Spring Security. */
+    @Bean
+    public CsrfTokenRepository csrfTokenRepository(CsrfSecurityProperties properties) {
+        return new SecureRandomCookieCsrfTokenRepository(properties);
+    }
+
     /**
      * Khai báo toàn bộ luật bảo vệ endpoint và kích hoạt session fixation protection.
      *
@@ -62,11 +69,12 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             SecurityContextRepository securityContextRepository,
+            CsrfTokenRepository csrfTokenRepository,
             ApiAuthenticationEntryPoint authenticationEntryPoint,
             ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
         http
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                         .ignoringRequestMatchers(CSRF_ENDPOINT))
                 .authorizeHttpRequests(authorize -> authorize
