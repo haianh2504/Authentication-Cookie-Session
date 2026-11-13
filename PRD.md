@@ -30,7 +30,7 @@ The application is a learning exercise. It is not represented as a validated pro
 
 ### In scope
 
-This section is the Phase 1 product target. It is not a claim that every requirement is already present in the backend; see [Implementation status and roadmap](#10-implementation-status-and-roadmap) for the source-code state as of 2026-11-12.
+This section is the Phase 1 product target. It is not a claim that every requirement is already present in the backend; see [Implementation status and roadmap](#10-implementation-status-and-roadmap) for the source-code state as of 2026-11-13.
 
 - Public gallery of available images.
 - Infinite scrolling with paged API requests: the initial request returns up to 10 images; each subsequent request also returns up to 10 images.
@@ -60,7 +60,7 @@ This section is the Phase 1 product target. It is not a claim that every require
 - Editing image details, image downloads, or a separate image detail page.
 - A gallery page-number interface; pagination is used to support infinite scrolling.
 - Any image storage provider other than Supabase Storage.
-- Login rate limiting is deferred and is not part of the current implementation.
+- Login and endpoint request-rate limiting is out of scope and is not part of the current implementation.
 
 ## 5. User flows
 
@@ -103,8 +103,11 @@ This section is the Phase 1 product target. It is not a claim that every require
 ### 5.5 Administrator logout
 
 1. Authenticated administrator requests logout.
-2. Backend invalidates the server-side session and clears or expires the session cookie.
-3. Backend returns `200 OK` using the common response envelope. Subsequent protected requests are unauthenticated and denied.
+2. Backend invalidates the current `HttpSession` through Spring Session, removing the server-side session from Redis.
+3. Spring Session clears or expires the session cookie in the HTTP response.
+4. Backend returns `200 OK` using the common response envelope. Subsequent protected requests are unauthenticated and denied.
+
+Logout does not update PostgreSQL and does not require a SQL transaction. If Redis session invalidation fails, the backend returns a safe `500 Internal Server Error` instead of reporting logout success.
 
 ## 6. Functional requirements
 
@@ -120,7 +123,7 @@ This section is the Phase 1 product target. It is not a claim that every require
 - **FR-10 Image deletion:** The administrator can delete an image by `imageId`; the backend removes the corresponding Storage object through the Storage API and the database record.
 - **FR-11 Logout:** The administrator can log out; the server-side session is invalidated.
 - **FR-12 CSRF:** The frontend obtains a CSRF token from the public `GET /api/v1/csrf-token` endpoint. The backend stores it in the `XSRF-TOKEN` cookie; the frontend echoes it in the `X-XSRF-TOKEN` header for state-changing cookie-authenticated operations. CSRF tokens are generated using `SecureRandom` and encoded using Base64 URL encoding.
-- **FR-13 Login rate limiting (deferred):** The target policy is to limit login requests to 3 requests per second; no rate-limiter implementation is currently present.
+- **FR-13 Login rate limiting:** Out of scope. The API does not impose an application-level login or endpoint request-rate limit.
 - **FR-14 Upload validation:** The backend accepts only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB, and validates their actual content/type on the server.
 - **FR-15 Response conventions:** API responses use the common `status`, `code`, `message`, `timestamp`, and `data` envelope. Successful login and image upload return `201 Created`; successful logout and image deletion return `200 OK`.
 
@@ -134,7 +137,7 @@ This section is the Phase 1 product target. It is not a claim that every require
 - During local development, configure the session cookie as `HttpOnly; SameSite=Lax` with `Secure` disabled and `Domain` omitted (host-only). Configure the frontend-readable `XSRF-TOKEN` cookie with `Path=/; SameSite=Lax`, `Secure` disabled, and `Domain` omitted; it must not be `HttpOnly`. Enable `Secure` when deploying over HTTPS.
 - Expose `GET /api/v1/csrf-token` as the public CSRF-token endpoint with no request body, path variable, or query parameter. Store the generated token in the `XSRF-TOKEN` cookie rather than in `data.token`.
 - Generate CSRF tokens using `SecureRandom` and encode them using Base64 URL encoding.
-- Login rate limiting is deferred; the removed prototype is not part of the current implementation scope.
+- Login and endpoint request-rate limiting is out of scope; the removed prototype is not part of the current implementation scope.
 - Validate uploaded files against the `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` allowlist, enforce the 15 MB maximum size, and inspect actual file content/type on the server. Do not rely only on filename extension or browser-provided MIME type.
 - Supabase Storage stores the actual image files in the public `gallery` bucket at `images/{imageId}`; PostgreSQL stores application gallery records in `public.images`, including `imageId`, `image_url`, and system-managed `created_at`.
 - Gallery queries order records with `ORDER BY created_at DESC, id DESC` and use the supporting index `CREATE INDEX idx_images_created_at ON public.images (created_at DESC);`.
@@ -163,7 +166,7 @@ This section is the Phase 1 product target. It is not a claim that every require
 - Session storage: Redis.
 - Implemented test tools: JUnit 5, Mockito, and Testcontainers. Live external-service verification remains environment-dependent.
 
-Java `21.0.12`, Maven Wrapper `3.10.0`, and Spring Boot `4.1.2` are recorded for the current backend. Node.js/frontend versions, deployment environments, remaining API paths, and external service configuration are still TBD.
+Java `21.0.12`, Maven Wrapper `3.10.0`, and Spring Boot `4.1.2` are recorded for the current backend. Node.js/frontend versions, deployment environments, and external service configuration are still TBD; the Phase 1 API paths are defined in `api_contract.md`.
 
 ## 10. Implementation status and roadmap
 
@@ -173,7 +176,7 @@ Status is based on the current source tree and tests, not on a live end-to-end r
 | --- | --- | --- |
 | API envelope, CSRF contract, and database schema | [x] Implemented | `ApiResponse`, `CsrfController`, `SecurityConfig`, and `V1_create_schemas.sql` are present. |
 | Admin login and current-session lookup | [x] Implemented | `AdminController`, `AdminSessionService`, `AdminUserDetailsService`, and Redis-backed Spring Session are present. |
-| Admin logout and session invalidation endpoint | [ ] Not implemented | No logout endpoint is present and logout is disabled in `SecurityConfig`. |
+| Admin logout and session invalidation endpoint | [x] Implemented | `AdminController`, `AdminSessionService`, and `AdminSessionRepository` invalidate the current Spring Session-backed Redis session and expire the browser session cookie. |
 | Opt-in admin seed with BCrypt | [x] Implemented | `AdminSeedRunner` and `AdminSeedService` create the account idempotently without storing plaintext passwords. |
 | Protected image upload | [x] Implemented | `POST /api/v1/images` is protected by role authorization and CSRF, then delegates to the upload service. |
 | Upload validation and Storage/Database persistence | [x] Implemented | Allowlist, MIME/magic-byte/size checks, Supabase Storage adapter, database insert, and upload compensation are present. |
@@ -188,7 +191,7 @@ Status is based on the current source tree and tests, not on a live end-to-end r
 - [x] Implement admin login, current-session lookup, Redis-backed sessions, and opt-in BCrypt seed.
 - [x] Implement protected upload, validation, Supabase Storage integration, PostgreSQL persistence, and focused tests.
 - [x] Implement protected image deletion with explicit Storage-first ordering and failure handling.
-- [ ] Add admin logout and server-side session invalidation.
+- [x] Add admin logout and server-side session invalidation.
 - [ ] Add public listing with 10-item opaque-cursor pagination and newest-first ordering.
 - [ ] Add the frontend preview and infinite-scroll workflow.
 - [ ] Reverify all implemented flows against live external services.

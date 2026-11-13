@@ -9,7 +9,7 @@ The website lets visitors browse a public gallery of Ronaldo photos. An administ
 
 For image uploads, the admin selects a file from their device. The frontend sends the file to the backend as `multipart/form-data`. The backend generates an `imageId` before upload, uses the fixed Storage object path `images/{imageId}` inside the public `gallery` bucket, validates and uploads the actual image file, then stores the `imageId`, resulting `image_url`, and system-managed `created_at` in the application table `public.images`. The browser receives the image URL that can be used to display the image.
 
-This is a learning project. Supabase Storage is the official Phase 1 image-file storage solution, and the `gallery` bucket is public for image delivery. The CSRF token cookie, fixed Storage object path, cursor field, common response envelope, and successful-operation status codes defined below are part of the confirmed API behavior. Other exact endpoint paths and remaining API-contract details are **deferred** until API design is completed.
+This is a learning project. Supabase Storage is the official Phase 1 image-file storage solution, and the `gallery` bucket is public for image delivery. The API method, path, request, response, CSRF token cookie, fixed Storage object path, cursor field, common response envelope, and successful-operation status codes are defined by `api_contract.md`, which is the source of truth for API details. This document describes the corresponding user flows and business behavior.
 
 ## 2. Actors
 
@@ -52,6 +52,8 @@ The token is generated with `SecureRandom` and encoded using Base64 URL encoding
 
 **Preconditions:** The website and backend are available. No login is required.
 
+**Endpoint:** `GET /api/v1/images`
+
 **Main flow:**
 
 1. Visitor opens the gallery page.
@@ -74,6 +76,10 @@ The token is generated with `SecureRandom` and encoded using Base64 URL encoding
 **Goal:** Authenticate an admin and establish a server-side session.
 
 **Preconditions:** Admin has valid credentials. The browser has no usable authenticated session.
+
+**Endpoint:** `POST /api/v1/auth/admin`
+
+**Request body:** JSON containing the required `email` and `password` fields.
 
 **Main flow:**
 
@@ -98,9 +104,11 @@ The token is generated with `SecureRandom` and encoded using Base64 URL encoding
 
 **Preconditions:** Browser may have a session cookie from an earlier login.
 
+**Endpoint:** `GET /api/v1/auth/admin/sessions`
+
 **Main flow:**
 
-1. Frontend makes a session-status or other protected request; browser attaches the cookie automatically.
+1. Frontend requests `GET /api/v1/auth/admin/sessions`; the browser attaches the session cookie automatically.
 2. Backend resolves the session and checks that it is valid, unexpired, and authenticated as an admin.
 3. Backend returns a successful response indicating the authenticated state and only the safe user details the UI needs.
 4. Frontend displays the admin state and allows access to admin controls.
@@ -162,6 +170,8 @@ The reverse order—writing PostgreSQL first and uploading Storage second—is n
 
 **Preconditions:** Admin has a valid authenticated session. The target image exists.
 
+**Endpoint:** `DELETE /api/v1/images/{imageId}`
+
 **Main flow:**
 
 1. Admin selects an image and confirms deletion.
@@ -179,6 +189,10 @@ The reverse order—writing PostgreSQL first and uploading Storage second—is n
 - **Storage or database deletion failure:** Return a generic server error and log details. Define how the application reconciles a missing Storage object or orphaned URL record.
 
 **Postconditions:** On success, the image no longer appears in the gallery, its Supabase Storage object is removed, and its URL record is removed according to the deletion policy.
+
+### Future enhancement: resilient deletion
+
+The Phase 1 implementation uses the basic Storage-first, database-second deletion flow. A durable deletion workflow with operation states, idempotent retries, and a reconciliation worker is planned after the core authentication, upload, listing, and basic deletion flows are complete. This future workflow is not required for the current UC05 success contract.
 
 ## 4. Cross-cutting rules
 
@@ -200,16 +214,13 @@ The reverse order—writing PostgreSQL first and uploading Storage second—is n
 - Delete requests identify images with `imageId`, not `imageURL`.
 - Server-side sessions are stored in Redis, have a lifetime of 10 minutes, and use session rotation.
 - Generate CSRF tokens using `SecureRandom` and encode them using Base64 URL encoding.
-- Limit login requests to 3 requests per second.
+- Application-level request-rate limiting is out of scope. The API does not impose a login or endpoint request-rate limit.
 
-## 5. Open design decisions
+## 5. Remaining design decisions
 
-- Exact REST endpoint paths for operations other than the confirmed CSRF endpoint and the confirmed upload endpoint `POST /api/v1/images`.
-- Whether UC03 uses a dedicated session-status endpoint or relies on normal protected requests.
 - Production-specific cookie deployment values, such as when to enable `Secure` and whether a cross-subdomain `Domain` is required.
-- Gallery pagination uses an opaque `nextCursor`: the initial request omits it, and each subsequent request sends the cursor returned by the previous response. The initial and subsequent requests return up to 10 images, ordered by newest `created_at` first. The response includes `limit`, `nextCursor`, and `hasNextPage` pagination metadata.
-- Storage/database consistency and cleanup strategy for failed deletions; UC04 upload compensation is defined above as Storage delete after a failed database insert.
-- Other API-contract details and production-specific session-cookie deployment values.
+- For UC05, the API contract defines Storage deletion before database deletion. The behavior for a missing Storage object, a database failure after Storage deletion, and reconciliation or retry remains to be finalized.
+- The exact endpoint-specific error-code catalog beyond the stable HTTP statuses and meanings documented in `api_contract.md`.
 
 ## 6. Additional Phase 1 requirements
 
@@ -229,12 +240,21 @@ The reverse order—writing PostgreSQL first and uploading Storage second—is n
 
 **Preconditions:** Admin has a valid authenticated session.
 
+**Endpoint:** `DELETE /api/v1/auth/admin/sessions`
+
 **Main flow:**
 
 1. Admin requests logout from the frontend.
-2. Backend invalidates the server-side session stored in Redis.
-3. Backend clears or expires the session cookie.
+2. Backend invalidates the current `HttpSession` through Spring Session, which deletes the server-side session stored in Redis.
+3. Spring Session expires the session cookie in the response so the browser removes its local session reference.
 4. Backend returns a `200 OK` response using the common response envelope.
 5. Frontend updates the UI to the unauthenticated state.
 
 **Postconditions:** Subsequent requests to protected operations are unauthenticated and denied. The successful logout response is `200 OK` using the common response envelope.
+
+**Transaction boundary:** UC06 does not update PostgreSQL and does not use a SQL transaction. Redis session invalidation and browser cookie expiration are handled by Spring Session as part of the HTTP request/response lifecycle. If Redis session invalidation fails, the backend returns `500 Internal Server Error` and must not report logout success.
+
+**Alternative flows:**
+
+- **No valid session:** Return `401 Unauthorized` using the common error envelope.
+- **Redis/session invalidation failure:** Return `500 Internal Server Error` with a safe message; do not expose Redis or internal exception details.

@@ -11,6 +11,7 @@ import org.example.authentication_cookiesession.service.AdminSessionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -65,6 +66,27 @@ public class AdminController {
                 "ADMIN_SESSION_RETRIEVING_SUCCESSFULLY",
                 "Admin session is valid",
                 adminSessionService.getCurrentSession(authentication));
+
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Xóa session hiện tại trong Redis và để Spring Session gửi cookie hết hạn
+     * cho browser khi response được commit.
+     *
+     * @param request HTTP request hiện tại
+     * @return response 200 với trạng thái authenticated=false
+     */
+    @DeleteMapping("/sessions")
+    public ResponseEntity<ApiResponse<AuthenticationStatusResponse>> logout(
+            HttpServletRequest request) {
+        adminSessionService.logout(request);
+
+        ApiResponse<AuthenticationStatusResponse> body = ApiResponse.of(
+                HttpStatus.OK.value(),
+                "ADMIN_LOGOUT_SUCCESSFULLY",
+                "Admin logout successfully",
+                new AuthenticationStatusResponse(false));
 
         return ResponseEntity.ok(body);
     }

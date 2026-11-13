@@ -4,7 +4,7 @@ A hands-on learning project for practicing Spring Security authentication, serve
 
 The application is a Ronaldo photo gallery. Visitors can browse the gallery; a single administrator can sign in, upload images, and delete images.
 
-> **Implementation status (2026-11-12):** The backend currently implements CSRF-token delivery, admin login/current-session lookup, opt-in admin provisioning, protected image upload, image validation, and image deletion. Public paginated listing, logout, and the frontend are not implemented in this checkout. Source presence is not the same as live proof against PostgreSQL, Redis, or Supabase.
+> **Implementation status (2026-11-13):** The backend currently implements CSRF-token delivery, admin login/current-session lookup, admin logout, opt-in admin provisioning, protected image upload, image validation, and image deletion. Public paginated listing and the frontend are not implemented in this checkout. Source presence is not the same as live proof against PostgreSQL, Redis, or Supabase.
 
 ## Phase 1 scope
 
@@ -37,13 +37,13 @@ See [PRD.md](PRD.md) for product requirements, flows, security expectations, and
 
 ## Implementation status
 
-Status below is based on the source tree and tests present on 2026-11-12. It does not claim a successful live request against external PostgreSQL, Redis, or Supabase services.
+Status below is based on the source tree and tests present on 2026-11-13. It does not claim a successful live request against external PostgreSQL, Redis, or Supabase services.
 
 | Area | Status | Current source evidence |
 | --- | --- | --- |
 | CSRF endpoint and cookie flow | Implemented | `CsrfController` and `SecurityConfig` expose `GET /api/v1/csrf-token`, issue `XSRF-TOKEN`, and protect state-changing requests. |
 | Admin login and current-session lookup | Implemented | `AdminController`, `AdminSessionService`, `AdminUserDetailsService`, and `SecurityConfig` authenticate the admin, rotate the session ID, and use Redis-backed Spring Session. |
-| Admin logout | Not implemented | No logout handler/endpoint is present; Spring Security logout is disabled in `SecurityConfig`. |
+| Admin logout | Implemented | `AdminController` delegates `DELETE /api/v1/auth/admin/sessions` to `AdminSessionService`; `AdminSessionRepository` invalidates the Spring Session-backed Redis session and Spring Session expires the browser cookie. |
 | Opt-in admin provisioning | Implemented | `AdminSeedRunner` and `AdminSeedService` create an account once and store only a BCrypt hash. |
 | Image upload | Implemented | `ImageController`, `ImageUploadServiceImpl`, `SupabaseImageStorage`, and `ImageRepository` coordinate Storage-first upload and database persistence. |
 | Image upload validation | Implemented | `ImageFileValidator` checks the allowlist, MIME type, magic bytes, and the 15 MB limit. |
@@ -100,7 +100,7 @@ The gallery list request omits `nextCursor` for the first page. Each subsequent 
 - Generate `imageId` before upload, store the file at `images/{imageId}` in the public Supabase Storage `gallery` bucket, and store the resulting `imageId`, `image_url`, and system-managed `created_at` in `public.images`.
 - Use `imageId`, not `imageURL`, when requesting image deletion. Delete the Storage object through the Supabase Storage API and remove the corresponding `public.images` record.
 - The initial admin account should be provisioned through a seed or migration. Store only a password hash in the database, and supply the initial password through secret configuration rather than committing it to source control.
-- Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Login rate limiting is deferred and is not present in the current source.
+- Server-side sessions expire after 10 minutes and use session rotation. Generate CSRF tokens with `SecureRandom` and encode them using Base64 URL encoding. Login and endpoint request-rate limiting is out of scope; the API does not impose an application-level request-rate limit.
 - These are project requirements and learning goals, not a claim that the application is production-ready.
 
 ### Generated security password
@@ -202,7 +202,7 @@ The table separates operations implemented in the current backend from requireme
 | List gallery images with `nextCursor` pagination | Public | `200 OK` | Not implemented |
 | Admin login: `POST /api/v1/auth/admin` | Administrator credentials | `201 Created` | Implemented |
 | Current session: `GET /api/v1/auth/admin/sessions` | Authenticated administrator | `200 OK` | Implemented |
-| Admin logout | Authenticated administrator | `200 OK` | Not implemented |
+| Admin logout: `DELETE /api/v1/auth/admin/sessions` | Authenticated administrator + CSRF | `200 OK` | Implemented |
 | Upload an image: `POST /api/v1/images` | Authenticated administrator + CSRF | `201 Created` | Implemented |
 | Delete an image: `DELETE /api/v1/images/{imageId}` | Authenticated administrator + CSRF | `200 OK` | Implemented with reconciliation gap |
 
@@ -215,7 +215,7 @@ The current repository contains the Spring Boot backend. A frontend directory, p
 - [x] Finalize the API contract and image data model, including the supporting `created_at` index.
 - [ ] Implement public image listing with initial and subsequent page sizes of 10, ordered by newest `created_at` first.
 - [x] Implement admin authentication and current-session lookup with Spring Security and Redis-backed sessions.
-- [ ] Implement admin logout and server-side session invalidation endpoint.
+- [x] Implement admin logout and server-side session invalidation endpoint.
 - [x] Provision the single admin account securely with an opt-in, idempotent seed.
 - [x] Protect image upload with authorization and CSRF defenses.
 - [x] Implement image deletion with authorization, CSRF defenses, and Storage-first/database-second handling; reconciliation after a database failure remains open.

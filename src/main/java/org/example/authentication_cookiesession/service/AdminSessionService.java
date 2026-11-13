@@ -5,6 +5,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.example.authentication_cookiesession.dto.request.AdminLoginRequest;
 import org.example.authentication_cookiesession.dto.response.AuthenticationStatusResponse;
+import org.example.authentication_cookiesession.exception.AdminLogoutException;
+import org.example.authentication_cookiesession.repository.AdminSessionRepository;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -22,6 +24,7 @@ public class AdminSessionService {
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
+    private final AdminSessionRepository adminSessionRepository;
 
     /**
      * Xác thực credentials, xoay session ID và lưu SecurityContext vào session Redis.
@@ -56,5 +59,25 @@ public class AdminSessionService {
      */
     public AuthenticationStatusResponse getCurrentSession(Authentication authentication) {
         return new AuthenticationStatusResponse(authentication != null && authentication.isAuthenticated());
+    }
+
+    /**
+     * Invalidates the current Spring Session-backed session and clears the
+     * authentication context for the current request.
+     *
+     * @param request HTTP request containing the current session cookie
+     */
+    public void logout(HttpServletRequest request) {
+        try {
+            if (!adminSessionRepository.invalidateCurrentSession(request)) {
+                throw AdminLogoutException.unauthorized();
+            }
+        } catch (AdminLogoutException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw AdminLogoutException.failed(exception);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 }
