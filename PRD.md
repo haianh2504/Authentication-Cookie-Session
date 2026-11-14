@@ -174,7 +174,7 @@ Status is based on the current source tree and tests, not on a live end-to-end r
 
 | Roadmap milestone | Status | Current evidence or remaining work |
 | --- | --- | --- |
-| API envelope, CSRF contract, and database schema | [x] Implemented | `ApiResponse`, `CsrfController`, `SecurityConfig`, and `V1_create_schemas.sql` are present. |
+| API envelope, CSRF contract, and database schema | [x] Implemented | `ApiResponse`, `CsrfController`, `SecurityConfig`, and `V1__create_schemas.sql` are present. |
 | Admin login and current-session lookup | [x] Implemented | `AdminController`, `AdminSessionService`, `AdminUserDetailsService`, and Redis-backed Spring Session are present. |
 | Admin logout and session invalidation endpoint | [x] Implemented | `AdminController`, `AdminSessionService`, and `AdminSessionRepository` invalidate the current Spring Session-backed Redis session and expire the browser session cookie. |
 | Opt-in admin seed with BCrypt | [x] Implemented | `AdminSeedRunner` and `AdminSeedService` create the account idempotently without storing plaintext passwords. |

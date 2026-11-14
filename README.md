@@ -4,7 +4,7 @@ A hands-on learning project for practicing Spring Security authentication, serve
 
 The application is a Ronaldo photo gallery. Visitors can browse the gallery; a single administrator can sign in, upload images, and delete images.
 
-> **Implementation status (2026-11-13):** The backend currently implements CSRF-token delivery, public cursor-paginated gallery listing, admin login/current-session lookup, admin logout, opt-in admin provisioning, protected image upload, image validation, and image deletion. The frontend is not implemented in this checkout. Source presence is not the same as live proof against PostgreSQL, Redis, or Supabase.
+> **Implementation status (2026-11-14):** The backend currently implements CSRF-token delivery, public cursor-paginated gallery listing, admin login/current-session lookup, admin logout, opt-in admin provisioning, protected image upload, image validation, and image deletion. The frontend is not implemented in this checkout. The full Spring application context now starts against PostgreSQL and Redis Testcontainers with Flyway migration validation; this is not live proof against external Supabase services.
 
 ## Phase 1 scope
 
@@ -37,7 +37,7 @@ See [PRD.md](PRD.md) for product requirements, flows, security expectations, and
 
 ## Implementation status
 
-Status below is based on the source tree and tests present on 2026-11-13. It does not claim a successful live request against external PostgreSQL, Redis, or Supabase services.
+Status below is based on the source tree and test run completed on 2026-11-14. It does not claim a successful live request against external PostgreSQL, Redis, or Supabase services.
 
 | Area | Status | Current source evidence |
 | --- | --- | --- |
@@ -50,8 +50,8 @@ Status below is based on the source tree and tests present on 2026-11-13. It doe
 | Image deletion | Implemented with a recovery gap | `ImageDeletionServiceImpl` deletes Storage before PostgreSQL and handles failures; a database failure after remote deletion still requires reconciliation. |
 | Public image listing | Implemented | `ImageController`, `ImageListingServiceImpl`, `ImageRepository`, and focused tests implement `GET /api/v1/images` with opaque `nextCursor` keyset pagination and up to 10 items per page. |
 | Frontend | Not implemented | No Next.js/TypeScript application files or frontend scripts are present in this checkout. |
-| Focused listing verification | Passed in the last recorded test reports | Listing service: 3 tests; controller: 6 tests; repository: 8 tests. These reports were not rerun during this documentation update. |
-| Full application-context verification | Blocked | The last recorded `@SpringBootTest` report fails because the test context does not initialize the `admin` table before Hibernate validation. |
+| Focused listing verification | Passed | Listing service, controller, and repository tests pass in the current Maven test suite. |
+| Full application-context verification | Passed | `@SpringBootTest` starts PostgreSQL and Redis Testcontainers, applies `V1__create_schemas.sql` through Flyway, and completes Hibernate schema validation. |
 
 ## Confirmed technology stack
 
@@ -62,7 +62,7 @@ Status below is based on the source tree and tests present on 2026-11-13. It doe
 | Database | Supabase Database (PostgreSQL) |
 | Image storage | Supabase Storage |
 | Session store | Redis |
-| Testing | JUnit 5, Mockito, Testcontainers |
+| Testing | JUnit 5, Mockito, Testcontainers, Flyway |
 
 The verified backend toolchain uses Java `21.0.12`, Maven Wrapper `3.10.0`, and Spring Boot `4.1.2`. Exact external service configuration remains environment-specific.
 

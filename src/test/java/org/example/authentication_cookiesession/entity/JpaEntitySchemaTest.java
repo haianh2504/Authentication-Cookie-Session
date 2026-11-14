@@ -22,11 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 // Tạo JPA test slice, gồm: Hibernate / Entity Manager / JPA repositories / Transaction rollback
 @DataJpaTest(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
-        // thực hiện schema SQL trước khi Hibernate validate
-        "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:db/migration/V1_create_schemas.sql"
+        "spring.flyway.enabled=true",
+        "spring.flyway.locations=classpath:db/migration"
 })
-// chạy test trực tiếp file SQL migration để create  ( chưa phải kiểm tra Flyway execution lifecycle )
 class JpaEntitySchemaTest {
 
     @Autowired

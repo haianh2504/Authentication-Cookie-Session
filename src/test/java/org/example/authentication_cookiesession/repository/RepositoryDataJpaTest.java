@@ -31,8 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Import(PostgresTestcontainersConfiguration.class)
 @DataJpaTest(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:db/migration/V1_create_schemas.sql"
+        "spring.flyway.enabled=true",
+        "spring.flyway.locations=classpath:db/migration"
 })
 class RepositoryDataJpaTest {
 
