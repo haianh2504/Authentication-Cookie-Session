@@ -47,7 +47,7 @@ This section is the Phase 1 product target. It is not a claim that every require
 ### Confirmed API conventions
 
 - The frontend obtains a CSRF token from `GET /api/v1/csrf-token`. The endpoint is public and has no request body, path variable, or query parameter.
-- The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie and does not return it in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for protected state-changing requests.
+- The CSRF endpoint stores the generated token in the `XSRF-TOKEN` cookie and does not return it in `data.token`. The frontend echoes the cookie value in the `X-XSRF-TOKEN` header for all state-changing requests, including login.
 - API responses use a common envelope containing `status`, `code`, `message`, `timestamp`, and endpoint-specific `data` fields.
 - Successful admin login and successful image upload return `201 Created`.
 - Successful admin logout and successful image deletion return `200 OK`.
@@ -74,11 +74,12 @@ This section is the Phase 1 product target. It is not a claim that every require
 
 ### 5.2 Administrator login
 
-1. Administrator submits email and password.
-2. Backend verifies the credentials.
-3. On success, backend creates a server-side session stored in Redis, sends the session cookie, and returns `201 Created` using the common response envelope.
-4. The browser includes the cookie with subsequent requests; Spring Security authenticates the administrator and applies authorization rules.
-5. On invalid credentials, the request is rejected without creating an authenticated session.
+1. Frontend obtains the CSRF token from `GET /api/v1/csrf-token`.
+2. Administrator submits email and password with the CSRF cookie and matching header.
+3. Backend verifies the CSRF token and credentials.
+4. On success, backend creates a server-side session stored in Redis, sends the session cookie, and returns `201 Created` using the common response envelope.
+5. The browser includes the cookie with subsequent requests; Spring Security authenticates the administrator and applies authorization rules.
+6. On invalid credentials, the request is rejected without creating an authenticated session.
 
 ### 5.3 Upload an image
 
@@ -122,7 +123,7 @@ Logout does not update PostgreSQL and does not require a SQL transaction. If Red
 - **FR-09 Image record:** The only business data for an image is `image_url`; `public.images` also stores the physical `id` column exposed as `imageId` and system-managed `created_at`. No title, caption, description, or other user-provided metadata is collected.
 - **FR-10 Image deletion:** The administrator can delete an image by `imageId`; the backend removes the corresponding Storage object through the Storage API and the database record.
 - **FR-11 Logout:** The administrator can log out; the server-side session is invalidated.
-- **FR-12 CSRF:** The frontend obtains a CSRF token from the public `GET /api/v1/csrf-token` endpoint. The backend stores it in the `XSRF-TOKEN` cookie; the frontend echoes it in the `X-XSRF-TOKEN` header for state-changing cookie-authenticated operations. `SecureRandomCookieCsrfTokenRepository` generates 32 random bytes and encodes them using unpadded Base64 URL encoding.
+- **FR-12 CSRF:** The frontend obtains a CSRF token from the public `GET /api/v1/csrf-token` endpoint. The backend stores it in the `XSRF-TOKEN` cookie; the frontend echoes it in the `X-XSRF-TOKEN` header for all state-changing operations, including login. `SecureRandomCookieCsrfTokenRepository` generates 32 random bytes and encodes them using unpadded Base64 URL encoding.
 - **FR-13 Login rate limiting:** Out of scope. The API does not impose an application-level login or endpoint request-rate limit.
 - **FR-14 Upload validation:** The backend accepts only `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` files up to 15 MB, and validates their actual content/type on the server.
 - **FR-15 Response conventions:** API responses use the common `status`, `code`, `message`, `timestamp`, and `data` envelope. Successful login and image upload return `201 Created`; successful logout and image deletion return `200 OK`.
@@ -155,7 +156,7 @@ Logout does not update PostgreSQL and does not require a SQL transaction. If Red
 - Uploads over 15 MB or outside the `.jpg`, `.jpeg`, `.png`, `.HEIC`, `.HEIF`, `.WebP`, and `.AVIF` allowlist are rejected by server-side validation.
 - Deleting an image using `imageId` returns `200 OK` and removes it from the gallery, the corresponding Storage object through the Storage API, and the corresponding database record.
 - Logout returns `200 OK`, invalidates the session, and causes subsequent requests to protected operations to be denied.
-- Cookie-authenticated state-changing requests are subject to CSRF protection.
+- State-changing requests, including login and cookie-authenticated admin operations, are subject to CSRF protection.
 
 ## 9. Dependencies and architecture
 
@@ -183,8 +184,10 @@ Status is based on the current source tree and tests, not on a live end-to-end r
 | Image deletion | [x] Implemented with limitation | `DELETE /api/v1/images/{imageId}` deletes Storage first and then PostgreSQL; a remote deletion followed by database failure requires reconciliation. |
 | Public listing with opaque `nextCursor` | [x] Implemented | `ImageController`, `ImageListingServiceImpl`, `ImageRepository`, and focused tests implement `GET /api/v1/images` with keyset pagination and up to 10 items per page. |
 | Frontend preview, infinite scroll, and integration | [ ] Not implemented | No Next.js/TypeScript source or package scripts are present in this checkout. |
-| Focused listing verification | [x] Passed in the last recorded reports | Listing service, controller, and repository reports pass; these reports were not rerun during this documentation update. |
-| Full application-context verification | [ ] Blocked | The last recorded `@SpringBootTest` report fails because the `admin` table is missing before Hibernate validation. |
+| Focused listing verification | [x] Passed | Listing service, controller, and repository reports pass in the current Maven test suite. |
+| Full application-context verification | [x] Passed | `@SpringBootTest` applies `V1__create_schemas.sql` through Flyway and completes Hibernate schema validation with PostgreSQL and Redis Testcontainers. |
+| Application integration flows | [x] Passed with boundary | `ApplicationIntegrationTest` covers UC00–UC06 through the real Spring context, real PostgreSQL/Redis containers, and mocked Supabase Storage; live Supabase remains unverified. |
+| UC04/UC05 edge-case verification | [x] Passed with boundary | Focused and full-context tests cover security rejection, multipart/input boundaries, all supported image metadata/signatures, Storage/database failure handling, missing records, malformed UUIDs, and repeated deletion; live external failures and reconciliation remain unverified. |
 | Live external-service and HTTP-flow verification | [ ] Pending | Source-level tests exist, but live PostgreSQL/Redis/Supabase behavior is not established by this document update. |
 
 ### Roadmap checklist
@@ -195,6 +198,8 @@ Status is based on the current source tree and tests, not on a live end-to-end r
 - [x] Implement protected image deletion with explicit Storage-first ordering and failure handling.
 - [x] Add admin logout and server-side session invalidation.
 - [x] Add public listing with 10-item opaque-cursor pagination and newest-first ordering.
+- [x] Add application integration tests for UC00–UC06 with PostgreSQL/Redis Testcontainers and mocked Supabase Storage.
+- [x] Add UC04/UC05 edge-case tests across the full Spring context, validator, upload service, and deletion service boundaries.
 - [ ] Add the frontend preview and infinite-scroll workflow.
 - [ ] Reverify all implemented flows against live external services.
 

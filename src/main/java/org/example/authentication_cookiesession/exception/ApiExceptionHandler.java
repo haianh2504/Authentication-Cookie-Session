@@ -10,8 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.multipart.MultipartException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -135,6 +137,37 @@ public class ApiExceptionHandler {
                 "VALIDATION_ERROR",
                 "The request contains invalid values",
                 new ValidationErrorsResponse(errors));
+
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * Chuyển JSON malformed thành lỗi 400 an toàn thay vì lỗi 500 nội bộ.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleUnreadableRequest(
+            HttpMessageNotReadableException exception) {
+        ApiResponse<Map<String, Object>> body = ApiResponse.of(
+                HttpStatus.BAD_REQUEST.value(),
+                "VALIDATION_ERROR",
+                "The request contains invalid values",
+                Map.of());
+
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * Chuẩn hóa path/query có kiểu dữ liệu sai thành lỗi 400 cho client.
+     */
+    // Đặc biệt bảo vệ UC05 khỏi UUID malformed rơi xuống lỗi 500 generic.
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleTypeMismatch(
+            MethodArgumentTypeMismatchException exception) {
+        ApiResponse<Map<String, Object>> body = ApiResponse.of(
+                HttpStatus.BAD_REQUEST.value(),
+                "VALIDATION_ERROR",
+                "The request contains invalid values",
+                Map.of());
 
         return ResponseEntity.badRequest().body(body);
     }

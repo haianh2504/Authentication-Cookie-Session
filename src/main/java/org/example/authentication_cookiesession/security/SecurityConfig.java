@@ -30,6 +30,7 @@ public class SecurityConfig {
     private static final String ADMIN_ROLE = "ADMIN";
     private static final String SESSION_COOKIE_NAME = "ADMIN_SESSION";
     private static final String CSRF_ENDPOINT = "/api/v1/csrf-token";
+    private static final String ADMIN_LOGIN_ENDPOINT = "/api/v1/auth/admin";
 
     /**
      * Tạo cookie serializer cho Spring Session với tên cookie opaque dành riêng cho admin.
@@ -76,10 +77,11 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        // Chỉ endpoint cấp token được bỏ qua; login cũng là state-changing request.
                         .ignoringRequestMatchers(CSRF_ENDPOINT))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.GET, CSRF_ENDPOINT).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/admin").permitAll()
+                        .requestMatchers(HttpMethod.POST, ADMIN_LOGIN_ENDPOINT).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/images").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/admin/sessions")
                         .hasRole(ADMIN_ROLE)

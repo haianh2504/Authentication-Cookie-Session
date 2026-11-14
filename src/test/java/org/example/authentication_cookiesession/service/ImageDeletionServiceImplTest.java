@@ -73,6 +73,7 @@ class ImageDeletionServiceImplTest {
                 ImageDeletionException.class,
                 () -> service.delete(imageId));
 
+        assertEquals(500, exception.getStatus().value());
         assertEquals("IMAGE_DELETION_FAILED", exception.getCode());
         verify(imageRepository, never()).deleteImageById(imageId);
     }
@@ -105,6 +106,27 @@ class ImageDeletionServiceImplTest {
 
         assertEquals("IMAGE_DELETION_FAILED", exception.getCode());
         verify(imageStorage).delete("images/" + imageId);
+    }
+
+    /**
+     * Delete service phải coi kết quả xóa database khác một row là lỗi bất thường.
+     */
+    // Kiểm tra race condition hoặc repository anomaly không được trả thành công giả.
+    @Test
+    void rejectsUnexpectedDatabaseDeleteCountAfterStorageDeletion() {
+        UUID imageId = UUID.randomUUID();
+        Image image = image(imageId);
+        when(imageRepository.findById(imageId)).thenReturn(Optional.of(image));
+        when(imageRepository.deleteImageById(imageId)).thenReturn(0);
+
+        ImageDeletionException exception = assertThrows(
+                ImageDeletionException.class,
+                () -> service.delete(imageId));
+
+        assertEquals(500, exception.getStatus().value());
+        assertEquals("IMAGE_DELETION_FAILED", exception.getCode());
+        verify(imageStorage).delete("images/" + imageId);
+        verify(imageRepository).deleteImageById(imageId);
     }
 
     @Test

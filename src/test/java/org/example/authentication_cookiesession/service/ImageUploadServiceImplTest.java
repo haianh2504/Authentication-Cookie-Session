@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -109,6 +110,58 @@ class ImageUploadServiceImplTest {
 
         assertEquals("IMAGE_UPLOAD_FAILED", exception.getCode());
         verify(imageStorage).delete(storedImage.storagePath());
+    }
+
+    /**
+     * Upload service phải dừng ngay khi validator từ chối file và không ghi external state.
+     */
+    // Kiểm tra validation failure không thể tạo object Storage hoặc row database.
+    @Test
+    void doesNotCallStorageOrDatabaseWhenFileValidationFails() {
+        ImageUploadServiceImpl service = new ImageUploadServiceImpl(
+                imageFileValidator,
+                imageStorage,
+                imageRepository);
+        MockMultipartFile file = validPng();
+        ImageUploadException validationException = new ImageUploadException(
+                org.springframework.http.HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                "UNSUPPORTED_IMAGE_TYPE",
+                "The uploaded file is not a supported image");
+        doThrow(validationException).when(imageFileValidator).validate(file);
+
+        ImageUploadException exception = assertThrows(
+                ImageUploadException.class,
+                () -> service.upload(new UploadImageRequest(file)));
+
+        assertEquals("UNSUPPORTED_IMAGE_TYPE", exception.getCode());
+        verify(imageFileValidator).validate(file);
+        verifyNoInteractions(imageStorage, imageRepository);
+    }
+
+    /**
+     * Upload service phải chuyển lỗi Storage thành kết quả lỗi, không tự chèn database.
+     */
+    // Kiểm tra external failure xảy ra trước persistence và không để row mồ côi.
+    @Test
+    void doesNotPersistDatabaseRecordWhenStorageUploadFails() {
+        ImageUploadServiceImpl service = new ImageUploadServiceImpl(
+                imageFileValidator,
+                imageStorage,
+                imageRepository);
+        MockMultipartFile file = validPng();
+        doThrow(new ImageStorageException(
+                "storage unavailable", new IllegalStateException("upstream down")))
+                .when(imageStorage)
+                .upload(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.same(file));
+
+        ImageStorageException exception = assertThrows(
+                ImageStorageException.class,
+                () -> service.upload(new UploadImageRequest(file)));
+
+        assertEquals("storage unavailable", exception.getMessage());
+        verify(imageStorage).upload(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.same(file));
+        verify(imageRepository, org.mockito.Mockito.never())
+                .insertUploadedImage(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
 
     private MockMultipartFile validPng() {
